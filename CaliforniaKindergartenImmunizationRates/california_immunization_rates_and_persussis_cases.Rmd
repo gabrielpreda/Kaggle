@@ -1,0 +1,973 @@
+---
+title: California Immunization Rates and Pertussis Cases
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: show
+---
+
+# Introduction
+
+The vaccination allows people to develop immunity to specific diseases. The immunization works in parallel in two ways: through vaccination, one individual is protected; and in the same time, if a significant part of the population is vaccinated, through [herd immunity](https://en.wikipedia.org/wiki/Herd_immunity), also that part of the population that is not yet, do not want to be or cannot be vaccinated is protected. Small infants (before the time when they can be vaccinated), people with special medical conditions preventing them to be vaccinated or people with personal beliefs that prevent them from accepting vaccination are in this way protected. But for *herd immunity* to work, the vaccination rate should be over a specific threshold (for each disease, depending on natural virality and other factors). The current data contains information for California schools, from 2000 to 2014 about the number of pupils admissions with immunization  for  Measles/Mumps/Rubella (MMR), Polio and Diphtheria/Tetanus/Pertussis (DTP). Also, it shows the number of Permanent Medical Exemption (PME) and Personal Beliefs Exemption (PBE) for each school. Another two data files contains the information on Pertussis cases from 5 years, between 2010 and 2015 and also infants Pertussis cases between 2014 and 2015.
+
+![\center Herd immunization (Wikimedia commons) \center](https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Herd_immunity.svg/512px-Herd_immunity.svg.png)
+
+
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(treemap)
+library(ggplot2)
+library(corrplot)
+library(choroplethr)
+library(choroplethrMaps)
+library(tm)
+library(wordcloud)
+library(reshape2)
+library(leaflet)
+library(rgdal)
+data("county.regions")
+```
+
+We will try to understand the geographical distribution of the immunization rates and
+medical permanent or personal beliefs exemptions. We will also highlight the difference
+between private schools (or educational institutions) and other schools. And we will try 
+to see if the name of the schools with lower immunization rates can teach us something 
+about the possible reasons of the high personal beliefs exemption percents here. 
+
+After that, we will try to analyze the possible correlations between low immunization 
+rates and high Pertussis cases incidence.
+
+
+
+# Load and prepare the data
+
+The dataset has 4 files, as following:  
+* **studentData** with registration data to schools in all counties, with school name, county name, number of PME, PBE and DTP, Polio, MMR immunization number;  
+* **geoData** contains the location information for each school;  
+* **pertusisRates** contains the number of pertussis cases from 2010 to 2015, for each county;  
+* **infantData** with the number of pertussis cases in 2014 for infants, for each county.  
+
+
+
+
+```{r read_data}
+studentData <- read.csv("../input/StudentData.csv")
+geoData <- read.csv("../input/geoData.csv")
+pertusisRates <- read.csv("../input/pertusisRates2010_2015.csv")
+infantData <- read.csv("../input/InfantData.csv")
+```
+
+Let's glimpse the data.
+
+```{r glimpse_data}
+glimpse(studentData)
+glimpse(geoData)
+glimpse(pertusisRates)
+glimpse(infantData)
+```
+
+We perform few processing of the data to prepare for the analysis.
+
+```{r student_data}
+studentData$county = tolower(studentData$COUNTY)
+studentData %>%  group_by(year, county) %>% 
+  summarize(pPBE=mean(nPBE/n*100), pPME=mean(nPME/n*100), pPolio=mean(nPolio/n*100),
+            pMMR=mean(nMMR/n*100), pDTP=mean(nDTP/n*100), n=sum(n)) %>%
+  ungroup() -> cysd
+
+californiaCounties <- subset(county.regions, state.name == "california")[,c(1,3)] 
+
+cYSD <- merge(cysd,californiaCounties, by.x="county", by.y="county.name")
+
+```
+
+
+```{r student_data_private_schools}
+studentData %>%  filter(schoolType=="PRIVATE") %>% group_by(year, county) %>% 
+  summarize(pPBE=mean(nPBE/n*100), pPME=mean(nPME/n*100), pPolio=mean(nPolio/n*100),
+            pMMR=mean(nMMR/n*100), pDTP=mean(nDTP/n*100), n=sum(n)) %>%
+  ungroup() -> cysdp
+
+californiaCounties <- subset(county.regions, state.name == "california")[,c(1,3)] 
+
+cYSDP <- merge(cysdp,californiaCounties, by.x="county", by.y="county.name")
+
+```
+
+
+# Immunization 
+
+In the following, let's analyze the data for the Permanent Medical Exemption (PME), 
+Personal Beliefs Exemptiuon (PBE) and immunization rate for DTP, Polio and MMR. 
+For each of these, we will look to the values aggregated per county and per year. 
+The percent is calculated as number of occurences divided with the total number of 
+school children (per county and per year).
+
+## Permanent Medical Exemption rates
+
+The Permanent Medical Exemption (PME) is an exception to compulsory school 
+immunization laws, based upon a medical condition. We will look to the percent 
+of PME for each county and year from total of school children registered.
+
+### All schools
+
+```{r permanent_medical_extemption_rates_1}
+colors = c("red", "blue", "yellow", "green", "magenta",
+           "lightblue", "grey", "lightgreen", "darkblue", "cyan")
+boxplot(pPME ~ year, data=cYSD, col=colors, xlim=c(0.5,15), ylim=c(0,10), 
+        ylab="PME % from year population", main="Permanent Medical Exemption, aggregated by counties and years")
+
+```
+
+We can notice that the average values per year and county are ranging from 0% to 8%, 
+largest values being recorded in 2004 and 2006.
+
+
+```{r permanent_medical_extemption_rates_2}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPME ~ county, data=cYSD, col=colors, xlim=c(1,59), ylim=c(0,10), xaxt='n',
+        ylab="PME % from county population", main="Permanent Medical Exemption, aggregated by counties and years")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+We can observe that the maximum average values per year and county are obtained in 
+counties like Marin, Modo, Siskiyou, all with low population and rather secluded.
+
+```{r permanent_medical_extemption_rates_3}
+treemap(cYSD,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pPME",
+        palette = "RdBu",  
+        title="Population (proportional with size) and PME % (proportional with color)", 
+        title.legend = "PME % from population",
+        fontsize.title = 12
+)
+```
+
+From this treemap representation we can see that in counties with large population, 
+the average percent of permanent medical exemption (PME) is small and maximum 
+average values are indeed in counties with very small population.
+
+### Private schools
+
+Let's see now what is happening in the private schools. 
+
+```{r permanent_medical_extemption_rates_1_private_schools}
+
+boxplot(pPME ~ year, data=cYSDP, col=colors, xlim=c(0.5,15), ylim=c(0,10), 
+        ylab="PME % from year population", main="Permanent Medical Exemption, aggregated by counties and years")
+
+```
+
+We can see that the values per year and county are ranging from 0 to 10%, largest values 
+being recorded in between 2009 and 2012. It is interesting to notice that this kind of 
+exemption is not occuring mostly in private schools, the diference between overall and
+private schools averages being rather small. The total average per year is well bellow 
+0.5%.
+
+```{r permanent_medical_extemption_rates_2_private_schools}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPME ~ county, data=cYSDP, col=colors, xlim=c(1,59), ylim=c(0,10), xaxt='n',
+        ylab="PME % from county population", main="Permanent Medical Exemption, aggregated by counties and years")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+As we noticed before, there are just few counties with a large spread of PME percent, 
+most notably Imperial, whilst several counties have outliers in some of the years, 
+most notably Sierra, Marin or Amador.
+
+```{r permanent_medical_extemption_rates_3_private_schools}
+treemap(cYSDP,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pPME",
+        palette = "RdBu",  
+        title="Population (proportional with size) and PME % (proportional with color)", 
+        title.legend = "PME % from population",
+        fontsize.title = 12
+)
+```
+
+Looking to the treemap representation, we confirm that the PME % average is generally 
+under 0.5%, with just few counties with average values exceeding 1. 
+
+## Personal Beliefs Exemption rates
+
+Personal Beliefs Exemptions (PBE) are exemptions to vaccination granted based on 
+personal belief (called philosophical or personal belief exemptions). One of the 
+references included here claims that currently there are 20 US states that allows PBEs. Let's analyze here the averages percents of PBE per year and county in California.
+
+### All schools
+
+```{r personal_beliefs_extempt_rates_1}
+boxplot(pPBE ~ year, data=cYSD, col=colors, xlim=c(0.5,15), ylim=c(0,30), 
+        ylab="PBE % from year population", main="Personal Beliefs Exemption, aggregated by counties and years")
+
+```
+
+We can notice that the average values per year and county are ranging from
+0 to 26%, largest values being recorded in 2013. The 3rd quartile is peaking under 
+10% for 2013 while the average is under 5%, with most yearly average values under 2.5%.
+
+
+```{r personal_beliefs_extempt_rates_2}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPBE ~ county, data=cYSD, col=colors, xlim=c(1,59), ylim=c(0,30), xaxt='n',
+        ylab="PBE % from county population", main="Personal Beliefs Exemption, aggregated by counties and years")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+We can notice that average values per year for PBE are much larger and with larger 
+variation for counties like Nevada, Siskiyou, Trinity, Alpine, Humboldt, Modoc.
+Most of the counties are showing average values over 5%, with values ranging between
+2.5% and over 10%.
+
+```{r personal_beliefs_extempt_rates_3}
+treemap(cYSD,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pPBE",
+        palette = "RdBu",  
+        title="Population (proportional with size) and PBE % (proportional with color)", 
+        title.legend = "PBE % from population",
+        fontsize.title = 12
+)
+```
+
+We confirm here that while just few states have yearly averages in the 25% area,
+majority of the counties have average percents above 5% and in the 10% range, 
+including the counties with largest population, like Los Angeles, San Diego, Orange. 
+
+```{r personal_beliefs_extempt_rates_4}
+ s2013 <- subset(cYSD[,c(9,3)],cYSD$year==2013)
+ colnames(s2013)<-c("region","value")
+county_choropleth(s2013,
+                  title = "Personal Beliefs Exemption percent - average per county for 2013",
+                  legend = "Percent of PBE",
+                  state_zoom = "california",reference_map = FALSE)
+```
+
+
+The map representation confirms (for the year 2013) the high average percents of PBE 
+in dense populated areas (Los Angeles, Orange county, San Diego).
+
+### Private schools
+
+Let's see now the status of PBE average percents per county and year, focusing on the
+private schools only.
+
+```{r personal_beliefs_extempt_rates_1_private_schools}
+boxplot(pPBE ~ year, data=cYSDP, col=colors, xlim=c(0.5,15), ylim=c(0,50), 
+        ylab="PBE % from year population", main="Personal Beliefs Exemption, aggregated by counties and years\n(private schools)")
+
+```
+
+We can notice that the average values per year and county are ranging from
+0 to  48%, largest values being recorded in 2008 and 2013.
+
+
+```{r personal_beliefs_extempt_rates_2_private_schools}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPBE ~ county, data=cYSDP, col=colors, xlim=c(1,59), ylim=c(0,50), xaxt='n',
+        ylab="PBE % from county population", main="Personal Beliefs Exemption, aggregated by counties and years\n(private schools)")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+As for the county average percent opting for PBE in private schools, counties like 
+Madera, Marin and Solano shows the largest PBE average values.  
+
+```{r personal_beliefs_extempt_rates_3_private_schools}
+treemap(cYSDP,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pPBE",
+        palette = "RdBu",  
+        title="Population (proportional with size) and PBE % (proportional with color) - private schools", 
+        title.legend = "PBE % from population",
+        fontsize.title = 12
+)
+```
+
+The same observation as for all schools, looking only to private schools in California,
+the average percent of PBE is above 5% also in the most populated areas, with values 
+exceeding 15% in some of the years.
+
+```{r personal_beliefs_extempt_rates_4_private_schools}
+ s2013 <- subset(cYSDP[,c(9,3)],cYSDP$year==2013)
+ colnames(s2013)<-c("region","value")
+ county_choropleth(s2013,
+                  title = "Personal Beliefs Exemption percent - average per county for 2013\n(private schools)",
+                  legend = "Percent of PME",
+                  state_zoom = "california",reference_map = FALSE)
+```
+
+Let's look now to the immunization rates.
+
+## Diphtheria/Tetanus/Pertussis (DTP) immunization rates
+
+
+We start with the immunization rate for DTP.
+
+### All schools
+
+```{r dtp_immunization_rates_1}
+boxplot(pDTP ~ year, data=cYSD, col=colors, xlim=c(0.5,15), ylim=c(65,100), 
+        ylab="DTP immunization rates per year", main="DTP immunization rates, aggregated by counties and years")
+
+```
+
+All averages per year are under 95%, with extreme average values per some counties as 
+low as 70% in 2013 or isolated values close to 70% in 2006, 2008, 2011, 2014.
+
+```{r dtp_immunization_rates_2}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pDTP ~ county, data=cYSD, col=colors, xlim=c(1,59), ylim=c(65,100), xaxt='n',
+        ylab="DTP immunization rates per county", main="DTP immunization rates, aggregated by counties and years")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+Counties like Nevada, Humboldt, Calaveras, Siskiyou, Toulumne are showing average 
+values for DTP immunization rate between 80% and 85% with extreme values as low as 
+70% for some years.
+
+
+```{r dtp_immunization_rates_3}
+treemap(cYSD,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pDTP",
+        palette = "RdBu",  
+        title="Population (proportional with size) and DTP immunization % (proportional with color)", 
+        title.legend = "DTP immunization % from population",
+        fontsize.title = 12
+)
+```
+
+
+```{r dtp_immunization_rates_4}
+ s2013 <- subset(cYSD[,c(9,7)],cYSD$year==2013)
+ colnames(s2013)<-c("region","value")
+ p<- county_choropleth(s2013,
+                  title = "DTP immunization rate - average per county for 2013",
+                  legend = "DTP immunization %\naverage per county",
+                  state_zoom = "california",reference_map = FALSE)
+ plot(p)
+``` 
+
+Some of the counties with the smallest population have actually DTP immunization rates
+around 70%.
+
+### Private schools
+
+Let's now look to the private schools.
+
+```{r dtp_immunization_rates_1_private_schools}
+boxplot(pDTP ~ year, data=cYSDP, col=colors, xlim=c(0.5,15), ylim=c(30,100), 
+        ylab="DTP immunization rates per year", main="DTP immunization rates, aggregated by counties and years\n(private schools)")
+
+```
+
+```{r dtp_immunization_rates_2_private_schools}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pDTP ~ county, data=cYSDP, col=colors, xlim=c(1,59), ylim=c(30,100), xaxt='n',
+        ylab="DTP immunization rates per county", main="DTP immunization rates, aggregated by counties and years\n(private schools)")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+Some of the counties with the smallest population (Sonoma, Napa, Colusa) have extreme,
+between 30% and 40% (for some years) average values for DTP immunization rate.
+
+
+```{r dtp_immunization_rates_3_private_schools}
+treemap(cYSDP,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pDTP",
+        palette = "RdBu",  
+        title="Population (proportional with size) and DTP immunization % (proportional with color) - private schools", 
+        title.legend = "DTP immunization % from population",
+        fontsize.title = 12
+)
+```
+
+
+```{r dtp_immunization_rates_4_private_schools}
+ s2013 <- subset(cYSDP[,c(9,7)],cYSDP$year==2013)
+ colnames(s2013)<-c("region","value")
+ p<- county_choropleth(s2013,
+                  title = "DTP immunization rate - average per county for 2013 (private schools)",
+                  legend = "DTP immunization %\naverage per county",
+                  state_zoom = "california",reference_map = FALSE)
+ plot(p)
+``` 
+
+We can observe the counties with very small average immunization rate for DTP,
+as low as ~40%.
+
+## Polio immunization rates
+
+### All schools
+
+
+```{r polio_immunization_rates_1}
+boxplot(pPolio ~ year, data=cYSD, col=colors, xlim=c(0.5,15), ylim=c(60,100), 
+        ylab="Polio immunization rates per year", main="Polio immunization rates, aggregated by counties and years")
+
+```
+
+Average immunization rates for Polio get as low as less than 95% with extreme average
+values for some counties as low as 70% (2012) or just above 70% (2008).
+
+```{r polio_immunization_rates_2}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPolio ~ county, data=cYSD, col=colors, xlim=c(1,59), ylim=c(60,100), xaxt='n',
+        ylab="Polio immunization rates per county", main="Polio immunization rates, aggregated by counties and years")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+Counties like Nevada and Siskiyou, Humboldt, Tulare and Tulumne shows quite small
+minimums (around and above 70%). 
+
+```{r polio_immunization_rates_3}
+treemap(cYSD,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pPolio",
+        palette = "RdYlBu",  
+        title="Population (proportional with size) and Polio immunization % (proportional with color)", 
+        title.legend = "Polio immunization % from population",
+        fontsize.title = 12
+)
+```
+
+```{r polio_immunization_rates_4}
+ s2013 <- subset(cYSD[,c(9,5)],cYSD$year==2013)
+ colnames(s2013)<-c("region","value")
+ county_choropleth(s2013,
+                  title = "Polio immunization rate - average per county for 2013",
+                  legend = "Polio immunization %\n average per county",
+                  state_zoom = "california",reference_map = FALSE)
+``` 
+
+We can observe that there are multiple counties with Polio immunization rate in the 
+70%-80% interval (average values per year).
+
+### Private schools
+
+```{r polio_immunization_rates_1_private_schools}
+boxplot(pPolio ~ year, data=cYSDP, col=colors, xlim=c(0.5,15), ylim=c(30,100), 
+        ylab="Polio immunization rates per year", main="Polio immunization rates, aggregated by counties and years\n(private schools)")
+
+```
+
+While the overall average values per county are around 90% for all years, extreme 
+values can be as low as 30% for some of the counties in 2012, with values lower than
+50% in 2006, 2007, 2008 and 2013.
+
+
+```{r polio_immunization_rates_2_private_schools}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPolio ~ county, data=cYSDP, col=colors, xlim=c(1,59), ylim=c(30,100), xaxt='n',
+        ylab="Polio immunization rates per county", main="Polio immunization rates, aggregated by counties and years\n(private schools)")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+Counties like Napa or Sonoma reach very small values in several years, with lows as 
+much as 30%.
+
+```{r polio_immunization_rates_3_private_schools}
+treemap(cYSDP,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pPolio",
+        palette = "RdYlBu",  
+        title="Population (proportional with size) and Polio immunization % (proportional with color) - private schools", 
+        title.legend = "Polio immunization % from population",
+        fontsize.title = 12
+)
+```
+
+```{r polio_immunization_rates_4_private_schools}
+ s2013 <- subset(cYSDP[,c(9,5)],cYSDP$year==2013)
+ colnames(s2013)<-c("region","value")
+ county_choropleth(s2013,
+                  title = "Polio immunization rate - average per county for 2013 (private schools)",
+                  legend = "Polio immunization %\n average per county",
+                  state_zoom = "california",reference_map = FALSE)
+``` 
+
+
+
+## Measles/Mumps/Rubella (MMR) immunization rates
+
+### All schools
+
+
+```{r mmr_immunization_rates_1}
+boxplot(pPolio ~ year, data=cYSD, col=colors, xlim=c(0.5,15), ylim=c(60,100), 
+        ylab="MMR immunization rates per year", main="MMR immunization rates, aggregated by counties and years")
+
+```
+
+MMR immunization average rates per county reach values as low as near 70% in 2008, 
+2012 and 2013.
+
+```{r mmr_immunization_rates_2}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPolio ~ county, data=cYSD, col=colors, xlim=c(1,59), ylim=c(60,100), xaxt='n',
+        ylab="MMR immunization rates per county", main="MMR immunization rates, aggregated by counties and years")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+Nevada is the county with average values per year for MMR immunization rates lower
+than 70%. Siskiyou, Mariposa and Humboldt have also extreme values close to 70%.
+
+```{r mmr_immunization_rates_3}
+treemap(cYSD,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pMMR",
+        palette = "RdYlBu",  
+        title="Population (proportional with size) and MMR immunization % (proportional with color)", 
+        title.legend = "MMR immunization % from population",
+        fontsize.title = 12
+)
+```
+
+```{r mmr_immunization_rates_4}
+ s2012 <- subset(cYSD[,c(9,6)],cYSD$year==2012)
+ colnames(s2012)<-c("region","value")
+ county_choropleth(s2012,
+                  title = "MMR immunization rate - average per county for 2012",
+                  legend = "MMR immunization %\n average per county",
+                  state_zoom = "california",reference_map = FALSE)
+``` 
+
+
+We can see that some of the counties have year average values for immunization 
+rates as low as between 70% and 80%.
+
+```{r mmr_immunization_rates_5}
+ s2013 <- subset(cYSD[,c(9,6)],cYSD$year==2013)
+ colnames(s2013)<-c("region","value")
+ county_choropleth(s2013,
+                  title = "MMR immunization rate - average per county for 2013",
+                  legend = "MMR immunization %\n average per county",
+                  state_zoom = "california",reference_map = FALSE)
+``` 
+
+
+We can see that some of the counties have year average values for immunization rates
+as low as between 70% and 80%.
+
+### Private schools
+
+```{r mmr_immunization_rates_1_private_schools}
+boxplot(pPolio ~ year, data=cYSDP, col=colors, xlim=c(0.5,15), ylim=c(30,100), 
+        ylab="MMR immunization rates per year", main="MMR immunization rates, aggregated by counties and years\n(private schools)")
+
+```
+
+
+Average values for MMR immunization rates in private schools are oscilating in all
+years around 90% with extreme values for some counties as low as between 40% and 50%
+in 2006, 2007, 2008 and 2013 and just above 30% in 2012.
+
+```{r mmr_immunization_rates_2_private_schools}
+op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+boxplot(pPolio ~ county, data=cYSDP, col=colors, xlim=c(1,59), ylim=c(30,100), xaxt='n',
+        ylab="MMR immunization rates per county", main="MMR immunization rates, aggregated by counties and years\n(private schools)")
+axis(side = 2)
+text(2:59, y=par("usr")[3]-0.5, labels = infantData$COUNTY, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+```
+
+Napa and Sonoma have the lowest average values per year for MMR immunization rates.
+
+
+```{r mmr_immunization_rates_3_private_schools}
+treemap(cYSDP,
+        index=c("county","year"), 
+        type = "value",
+        vSize = "n",  
+        vColor = "pMMR",
+        palette = "RdYlBu",  
+        title="Population (proportional with size) and MMR immunization % (proportional with color) - private schools", 
+        title.legend = "MMR immunization % from population",
+        fontsize.title = 12
+)
+```
+
+```{r mmr_immunization_rates_4_private_schools}
+ s2012 <- subset(cYSDP[,c(9,6)],cYSDP$year==2012)
+ colnames(s2012)<-c("region","value")
+ county_choropleth(s2012,
+                  title = "MMR immunization rate - average per county for 2012 (private schools)",
+                  legend = "MMR immunization %\n average per county",
+                  state_zoom = "california",reference_map = FALSE)
+``` 
+
+```{r mmr_immunization_rates_5_private_schools}
+ s2013 <- subset(cYSDP[,c(9,6)],cYSDP$year==2013)
+ colnames(s2013)<-c("region","value")
+ county_choropleth(s2013,
+                  title = "MMR immunization rate - average per county for 2013 (private schools)",
+                  legend = "MMR immunization %\n average per county",
+                  state_zoom = "california",reference_map = FALSE)
+``` 
+
+
+
+
+## Conclusions
+
+For PMEs, public and private schools shows low averages per county and year. As for
+PBEs, the numbers increased dramatically in recent years, before the bill passed by 
+the state of California Senate in 2015, especially in few counties with lower 
+population. Private schools shows generally larger numbers and above 10% even in
+populous counties like Los Angeles, San Diego or Orange. Immunization rates ranges
+between 70% and 95%, with extremes as low as 50% in some average per county and year. 
+In the following, we will look not only to averages per year and county but also
+to extremes, since we need in the same time, in order that a disease will spread, 
+a community with very low imunization rate (over several years, eventually) and
+a larger area with low imunization rate where the disease will spread after taking
+momentum.
+
+# Are some schools special?
+
+
+Let's look what are the schools with the highest Permanent Medical Exemption percent
+and with highest Personal Beliefs Exemption percent.
+
+```{r pme_top}
+
+studentData %>%
+  group_by(SCHOOL) %>%
+  summarize(nPME = min(nPME/n*100)) %>%
+  top_n(n = 50, wt = nPME) %>% 
+  arrange(-nPME) %>%
+  ungroup() -> studentdataPME
+  
+ggplot(studentdataPME, aes(x=reorder(SCHOOL,nPME), y=nPME)) +
+  geom_bar(stat='identity', fill = "#FF6666") + theme(axis.text=element_text(size=5))+
+  labs(title="Schools with highest PME percent", x="Schools", y="PME percent") +
+  coord_flip()
+```
+
+Top 50 with the highest PME percent shows that there was even a school with 100%
+and there are several schools with more than 10% PME.
+
+```{r pbe_top}
+
+studentData %>%
+  group_by(SCHOOL) %>%
+  summarize(nPBE = min(nPBE/n*100)) %>%
+  top_n(n = 50, wt = nPBE) %>% 
+  arrange(-nPBE) %>%
+  ungroup() -> studentdataPBE
+  
+ggplot(studentdataPME, aes(x=reorder(SCHOOL,nPME), y=nPME)) +
+  geom_bar(stat='identity', fill = "#FF6666") + theme(axis.text=element_text(size=5))+
+  labs(title="Schools with highest PBE percent", x="Schools", y="PBE percent") +
+  coord_flip()
+```
+
+Top 50 with the highest PBE shows one school with 100% PBE, several schools with
+PBE percepnt between 10% and 25% and many schools with PBE over 5%.
+
+```{r dtp_top}
+
+studentData %>%
+  group_by(SCHOOL) %>%
+  summarize(nDTP = min(nDTP/n*100)) %>%
+  top_n(n = -50, wt = nDTP) %>% 
+  arrange(nDTP) %>%
+  ungroup() -> studentdataDTP
+  
+ggplot(studentdataDTP, aes(x=reorder(SCHOOL,-nDTP), y=nDTP)) +
+  geom_bar(stat='identity', fill = "#FF6666") + theme(axis.text=element_text(size=5))+
+  labs(title="Schools with lowest DTP immunization rate", x="Schools", y="DTP immunization rate") +
+  coord_flip()
+```
+
+Here the top is with the schools with lowest DTP immunization rate. There are 22
+schools that had even 0% DTP immunization rate (at least for one year).  
+
+```{r polio_top}
+
+studentData %>%
+  group_by(SCHOOL) %>%
+  summarize(nPolio = min(nPolio/n*100)) %>%
+  top_n(n = -50, wt = nPolio) %>% 
+  arrange(-nPolio) %>%
+  ungroup() -> studentdataPolio
+  
+ggplot(studentdataPolio, aes(x=reorder(SCHOOL,-nPolio), y=nPolio)) +
+  geom_bar(stat='identity', fill = "#FF6666") + theme(axis.text=element_text(size=5))+
+  labs(title="Schools with lowest Polio immunization rate", x="Schools", y="Polio immunization rate") +
+  coord_flip()
+```
+
+We see 19 schools or education institutions with 0% Polio immunization rates
+(at least for one year).
+
+```{r mmr_top}
+
+studentData %>%
+  group_by(SCHOOL) %>%
+  summarize(nMMR = min(nMMR/n*100)) %>%
+  top_n(n = -50, wt = nMMR) %>% 
+  arrange(-nMMR) %>%
+  ungroup() -> studentdataMMR
+  
+ggplot(studentdataMMR, aes(x=reorder(SCHOOL,-nMMR), y=nMMR)) +
+  geom_bar(stat='identity', fill = "#FF6666") + theme(axis.text=element_text(size=5))+
+  labs(title="Schools with lowest MMR immuniz. rate", x="Schools", y="MMR immunization rate") +
+  coord_flip()
+```
+
+We see that we do have 19 schools or education institutions with 0% MMR immunization
+rates (at least for one year).
+
+## What is in the name of the school?
+
+Let's try to analyze the names of the schools with low immunization rates. For this,
+let's pick the top 50 with lowest immunization rates for DTP, Polio and MMR, merge
+them and run a simple frequence analysis for the words in the names of these schools
+or education institutions. We will remove the most frequent words appearing in the
+names of such schools, like `school`, `preschool`, `academy`, `elem`, `sch`.
+
+```{r text_analysis_school_names}
+studentdataDTP$SCHOOL<-as.character(studentdataDTP$SCHOOL)
+studentdataPolio$SCHOOL<-as.character(studentdataPolio$SCHOOL)
+studentdataMMR$SCHOOL<-as.character(studentdataMMR$SCHOOL)
+
+txt <- unlist(list(unlist(studentdataDTP$SCHOOL),unlist(studentdataPolio$SCHOOL),unlist(studentdataMMR$SCHOOL)))
+myCorpus <- Corpus(VectorSource(txt))
+myCorpus = tm_map(myCorpus, content_transformer(tolower))
+myCorpus = tm_map(myCorpus, removePunctuation)
+myCorpus = tm_map(myCorpus, removeNumbers)
+frequentSchool = c("school","preschool","academy","elem","sch")
+myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"), stopwords('SMART'),frequentSchool))
+myDtm = TermDocumentMatrix(myCorpus, control = list(minWordLength = 1))
+m <- as.matrix(myDtm)
+v <- sort(rowSums(m), decreasing=TRUE)
+myNames <- names(v)
+d <- data.frame(word=myNames, freq=v)
+wordcloud(d$word, d$freq, min.freq=4, colors=brewer.pal(5,"Set1"))
+```
+
+
+The most frequent names suggest special methodology educational institutions, 
+like `montessori` and `waldorf`. Also `charter` comes from `Charter school` which
+in US is a school  subjected to fewer rules, regulations, and statutes than 
+traditional state schools. Then are the religious names, like `christian` or `lutheran`. Then, there are toponimics or nature specific words like `grove`, `woodland`, `country`, `valley`, `oak`, `grove`. Let's see the asociations of these most frequent words with other words used in the schools names.
+
+```{r frequent_terms_associations}
+
+# which words are associated with "charter"?
+findAssocs(myDtm, 'charter', 0.30)
+# which words are associated with "montessori"?
+findAssocs(myDtm, 'montessori', 0.30)
+# which words are associated with "valley"?
+findAssocs(myDtm, 'valley', 0.30)
+```
+
+We can observe that actually some of the most freqent words are also associated with 
+another words in the top. `Charter` has the largest association with other frequent 
+words in `top 10`. As for `valley`, his association list reveals also another religious
+word frequently used in educational institutions with low immunization rates, `baptist`.
+
+
+The conclusion of our word analysis is that it might be an association (not necessary a
+correlation) between education institutions with special, non-mainstream methodology 
+(like `montessori` or `waldorf`), religous education (`christian`,`'lutheran`, `baptist`)
+and very low immunization rates.
+
+
+# Pertussis casses
+
+
+Let's start by merging county number of registration for educational institutions, immunization rates data with data for pertussis cases. Then we will represent these data together, trying to spot associations or possible correlations.
+
+```{r merge_immuni_pertussis}
+
+mpertusis <- melt(pertusisRates[c(1,2,4,6,8,10)], id.vars="county")
+mpertusis$county <- tolower(mpertusis$county)
+mpertusis$variable <- as.integer(gsub("Cases","",mpertusis$variable))
+colnames(mpertusis)<-c("county","year","cases")
+studentPertusisData <- merge(x=cYSD,y=mpertusis,by=c("county","year"))
+studentPertusisData$pPer <- studentPertusisData$cases/studentPertusisData$n*100
+summary(studentPertusisData)
+```
+
+
+## Correlations
+
+Let's calculate the correlation between the dimmensions in the data frame `studentPertusisData`.
+
+```{r correlation}
+
+correlations <- cor(studentPertusisData[,2:11])
+corrplot(correlations, number.cex = .9, method = "number", type = "upper")
+```
+
+It appears, as it was expected, to be a strong inverse correlation between the percent of Personal Beliefs Exemption forms filled and the immunization rates (average values per county and year). It is a very small correlation between the immunization rates and the total number of schools registrations (we observed that in more populous areas the immunization rates averages tend to be higher). It appears to exists a very small inverse correlation between the percent of cases from overall population (per county and year) and the immunization rates averages (per county and year). The higher the immunization rate, the lower the percent of cases. In the same time, there is a quite strong correlation (0.65/1) between the percent of cases (per county and year) and the total registered students (per county and year). This will indicate that the population concentration counts; in counties with larger population and higher population densities, the percent of Pertussis cases is higer. 
+
+
+## Counties with large percent of Pertussis cases and low DTP immunization rates
+
+Let's see the top 30  largest percentage of Pertussis cases from total school population (per county and year) and also the top 10 for smaller percentage of immunization (average values for county and year).
+
+```{r dtp_per_county}
+
+studentPertusisData %>%
+  top_n(n = -30, wt = pDTP) %>% 
+  arrange(-pDTP) %>%
+  ungroup() -> studentdataDTP_top
+
+studentdataDTP_top$county_year = sprintf("%s (%d)",studentdataDTP_top$county,studentdataDTP_top$year)
+  
+ggplot(studentdataDTP_top, aes(x=reorder(county_year,-pDTP), y=pDTP)) +
+  geom_bar(stat='identity', fill = "#2638A3") + theme(axis.text=element_text(size=10))+
+  labs(title="Counties (years) with lowest DTP immunization rate", x="County (year)", y="DTP immunization rate - average per county") +
+  coord_flip()
+```
+
+
+```{r per_case_per_county}
+
+studentPertusisData %>%
+  top_n(n = 30, wt = pPer) %>% 
+  arrange(pPer) %>%
+  ungroup() -> studentdataPer_top
+
+studentdataPer_top$county_year = sprintf("%s (%d)",studentdataPer_top$county,studentdataPer_top$year)
+  
+ggplot(studentdataPer_top, aes(x=reorder(county_year,pPer), y=pPer)) +
+  geom_bar(stat='identity', fill = "#2638A3") + theme(axis.text=element_text(size=10))+
+  labs(title="Counties (years) with highest percent of Pertussis cases", x="County (year)", y="Percent of Pertussis cases from county population") +
+  coord_flip()
+```
+
+
+## Map with counties with most Pertussis cases 
+
+Let's show the Pertussis cases distribution on a cloropleth map.
+```{r pertussis_choropleth_map}
+
+renderYearMap <- function(year) {
+  s <- subset(studentPertusisData[,c(9,11)],studentPertusisData$year==year)
+  colnames(s)<-c("region","value")
+  p<-county_choropleth(s,
+                  title = sprintf("Pertussis cases - percent per county for %s", year),
+                  legend = "Pertusis cases - percent from county population",
+                  state_zoom = "california",reference_map = FALSE)
+  return(p)
+}
+  par(0)
+  renderYearMap(2010)
+  renderYearMap(2011)
+  renderYearMap(2012)
+  renderYearMap(2013)
+  renderYearMap(2014)
+
+
+```
+
+## Schools with lowest DTP immunization rate (all years)
+
+Here we show the schools with lowest DTP immunization rates over entire 2000-2015 
+period. The lcations of the 300 schools with lowest DTP immunization rate are shown on 
+the leaflet map with circles. Each circle has a color ranging from red 
+(0% DTP immunization from entire school registrations during that year) to green 
+(~50% DTP immunization from entire school registrations during that year).
+
+
+```{r dtp_pertussis_leaflet}
+
+studentData %>%
+  select(SCHOOL, county, school_code, year, n, nDTP) %>%
+  top_n(n = -300, wt = nDTP) %>% 
+  arrange(nDTP) ->  studentdata_DTP
+
+studentdata_DTP$pDTP = round(studentdata_DTP$nDTP/studentdata_DTP$n*100,2)
+
+
+merge(studentdata_DTP,geoData,by="school_code") %>%
+  filter(latitude > 32 & latitude < 42 & longitude > -124 & longitude < -112) %>%
+  ungroup() ->schools
+
+bins <- c(0,5, 10, 15, 20, 30, 35,40,50)
+
+pal <- colorBin("RdYlGn", domain = schools$pDTP, bins = bins)
+
+leaflet(data = schools) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lat=schools$latitude, lng=schools$longitude, radius=8, color = ~pal(schools$pDTP), weight=3, opacity=1,
+             popup= paste("<strong>School code: </strong>", schools$school_code,
+                          "<br><strong>School name: </strong>", schools$SCHOOL,
+                          "<br><strong>County: </strong>", schools$county,
+                          "<br><strong>Year: </strong>", schools$year,
+                           "<br><strong>DTP immunization percent: </strong>", schools$pDTP
+             ))
+
+```
+
+
+There is an annomaly in this map: although we filtered out (using a lat/long box) the 
+large majority of the data with wrong latitude and longitude (due to erroneous 
+geolocations in the **geoData** file), still appears a school in Las Vegas, which is 
+not in California, but in Clark county, Nevada.
+
+There are several clusters of schools with extremely low DTP immunization rates 
+(in different years). One cluster is formed around San Diego another one around 
+Los Angeles and another two around San Francisco and Sacramento.
+
+
+## Conclusions
+
+
+It appears that in some of the counties with persistent low immunization rate 
+high percents of Pertussis cases can appear (Nevada, Modoc, Humboldt, Mariposa, 
+Tuolumne); there are notably exceptions: Mono appears twice in top 3 for most higher
+percent of Pertussis cases per county population and is not present in the top 30 of
+lowest DTP immunization. Siskiyou appers several times in top 30 of county (years)
+with low immunization rates and is not present in top 30 of high Pertussis cases per 
+county population.
+
+
+
+
+# References
+
+[1]: [After California got rid of personal exemptions for vaccines, medical exemptions went way up, LA Times, Sept 5, 2017](http://www.latimes.com/science/sciencenow/la-sci-sn-vaccine-medical-exemptions-20170905-story.html)  
+[2]: [School & Childcare Requirements for Immunizations](https://cchealth.org/immunization/school-requirements.php)    
+[3]: [Charter Schools in the United States](https://en.wikipedia.org/wiki/Charter_schools_in_the_United_States)  
+
+
