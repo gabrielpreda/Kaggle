@@ -1,0 +1,287 @@
+---
+title: Map with Every pub in England
+author: Gabriel Preda
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r include=FALSE}
+library(dplyr)
+library(leaflet)
+library(rgdal)
+library(stringr)
+library(ggplot2)
+```
+
+# Introduction
+
+
+![The Ale House Door, painting of c. 1790 by Henry Singleton, Wikipedia, public domain](https://upload.wikimedia.org/wikipedia/commons/4/49/Henry_Singleton_The_Ale-House_Door_c._1790.jpg)
+
+Pubs are an important part of British culture and history.   
+
+We will explore the data from <https://www.kaggle.com/rtatman/every-pub-in-england>
+
+The data structure is:
+This dataset includes information on 51,566 pubs. This dataset contains the following columns:
+
+* fsa_id (int): Food Standard Agency's ID for this pub.
+* name (string)L Name of the pub
+* address (string): Address fields separated by commas.
+* postcode (string): Postcode of the pub.
+* easting (int)
+* northing (int)
+* latitude (decimal)
+* longitude (decimal)
+* local_authority (string): Local authority this pub falls under.
+
+
+
+# Data exploration
+
+```{r explore}
+df <- read.csv("../input/every-pub-in-england/open_pubs.csv", stringsAsFactors=FALSE)
+```
+
+Let's start to look a bit to the names, addresses, postcode and local authority
+```{r show}
+knitr::kable(head(df[,c("name","address","postcode","local_authority")],20),caption="Pub name, address, postcode and local authority")
+```
+
+
+The address looks structured mostly as a set of 4 items, the street or street address, the commune or city, the town and the county. The town appears to be entered with uppercases. Not all the addresses are structured the same, for example in line 9 and 10 the upper-case word is on the last position. The local authority appears to not be related to the county, for example Babergh, which is in Suffolk, appears to be as well the local authority for pubs in Essex.
+
+## Pubs per local authority
+
+Let's look now to the number of pubs per local authority. We will look first to the local authorities with largest number of pubs (top 20)
+```{r top_20_pubs_local_authority}
+df %>%
+  group_by(local_authority) %>%
+  summarize(pubs = length(local_authority)) %>%
+  top_n(n = 20, wt = pubs) %>% 
+  arrange(-pubs) %>%
+  ungroup() -> dflc
+  
+g <- ggplot(dflc, aes(x=reorder(local_authority,pubs), y=pubs)) +
+    geom_bar(stat='identity', fill = "#6666FF") + 
+  labs(title="Local authorities with largest number of pubs", x="Local authorities", y="Number of pubs") +
+  coord_flip()
+g
+```
+
+Let's see the local authorities with smaller number of pubs (bottom 20)
+```{r bottom_20_local_authorities}
+df %>%
+  group_by(local_authority) %>%
+  summarize(pubs = length(local_authority)) %>%
+  top_n(n = -20, wt = pubs) %>% 
+  arrange(-pubs) %>%
+  ungroup() -> dflc
+  
+g <- ggplot(dflc, aes(x=reorder(local_authority,pubs), y=pubs)) +
+  geom_bar(stat='identity', fill = "#FF6666") + 
+  labs(title="Local authorities with smallest number of pubs", x="Local authorities", y="Number of pubs") +
+  coord_flip()
+g
+```
+
+## Most frequent pub names
+
+We will try now to group the pubs by names and see which names are most frequent
+
+```{r frequent_names}
+df %>%
+  group_by(name) %>%
+  summarize(pubs = length(name)) %>%
+  top_n(n = 20, wt = pubs) %>% 
+  arrange(-pubs) %>%
+  ungroup() -> dfn
+g <- ggplot(dfn, aes(x=reorder(name,pubs), y=pubs)) +
+  geom_bar(stat='identity', fill = "#FF66FF") + 
+  labs(title="Top 20 of most frequent pub names in England", x="Pub names", y="Number of pubs") +
+  coord_flip()
+g
+```
+
+## Longest pub names in England
+
+Let's see what are the longest pub names in England.
+
+```{r longest_names}
+df %>%
+  group_by(name) %>%
+  summarize(pubs = length(name)) %>%
+  top_n(n = 10, wt = str_count(name)) %>% 
+  arrange(-str_count(name)) %>%
+  ungroup() -> dfnp
+head(dfnp$name,10)
+```
+
+We can observe that actually the first name is a corruption, most probably due to separator and comma conflict. The address was merged with the name during import. We will investigate further these annomalies.
+
+## Dig into pub names topic
+
+Starting with frequency and length of pub names we discovered a lot of information. Let's run a text analysis on the pub data names. We would like to identify the most frequent words appearing in the Pub names.
+
+Here we show words used in pub names with frequency over 300
+
+```{r include=FALSE}
+library(tm)
+library(wordcloud)
+```
+
+```{r corpus}
+#build a corpus
+# build a corpus, which is a collection of text documents
+# VectorSource specifies that the source is character vectors.
+myCorpus <- Corpus(VectorSource(df$name))
+#After that, the corpus needs a couple of transformations, including changing letters to lower case, removing punctuations/numbers and removing stop words. The general English stop-word list is tailored by adding "available" and "via" and removing "r".
+myCorpus = tm_map(myCorpus, content_transformer(tolower))
+# remove punctuation
+myCorpus = tm_map(myCorpus, removePunctuation)
+# remove numbers
+myCorpus = tm_map(myCorpus, removeNumbers)
+# remove stopwords for English
+myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"), stopwords("SMART")))
+
+#create DTM
+myDtm = TermDocumentMatrix(myCorpus,
+                           control = list(minWordLength = 1))
+
+#Frequent Terms and Associations
+freqTerms <- findFreqTerms(myDtm, lowfreq=300)
+freqTerms
+```
+
+# Analysis of geographical data
+
+We intend to publish the data showing the pubs on a map. In order to do this, we must make sure that latitude and longiture are valid. We will check that the values are numeric first.
+
+```{r geospatial}
+df$latitude <- as.numeric(df$latitude)
+df$longitude <- as.numeric(df$longitude)
+```
+
+After processing the latitude and longitude data we can see that some of the lat and long are NAs i.e. the original data was not numeric. Let's see how many rows have at least one lat or one long NAs.
+
+(latitudes)
+```{r latitudes}
+plyr::count(is.na(df$latitude))
+```
+(longitudes)
+```{r longitudes}
+plyr::count(is.na(df$longitude))
+```
+
+## Recover lat & long using northing, easting and UTM zone
+
+We can see that there are 70 missing latitudes and 72 missing longitudes, totally 72 data with missing either lat or long. Fortunatelly, we do have as well *northing* and *easting* data and we will try to recover the *lat*/*long* information for the pubs with missing lat/long from *northing* and *easting* coordinates. For this we will use *rgdal* *R* package. 
+We can calculate the UTM coordinates from UTM zone and northing and easting. To find UTM zone we will need actually the approximative longitude. UTM zone is calculated from longitude with the following function (reference: https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system):
+
+```{r get_utm}
+long2UTM <- function(long) {
+    (floor((long + 180)/6) %% 60) + 1
+}
+```
+
+Applying the function to the limits of longitude and latitude in the whole data we might have a image of the UTM zones for England.
+
+```{r missing_long}
+#filter the data with missing longitude
+df %>% filter(is.na(df$longitude) == FALSE) -> dfl
+minLong <- min(dfl$longitude); minUTM <- long2UTM(minLong)
+maxLong <- max(dfl$longitude); maxUTM <- long2UTM(maxLong)
+printf <- function(...) cat(sprintf(...))
+printf("Min UTM: %d, Max UTM: %d", minUTM, maxUTM)
+```
+
+The UTM zone not being unique (is either 29, 30 or 31), if we would like to extract somehow the UTM zone we will need to figure-out the approximate longitude of the data with missing lat / long and from the approximate longitude to infer the UTM. Having rhe *northing* and *easting* then should be a simple operation to recover the *latitude* and *longitude* for the same data, using the following code:
+
+```{r prepare_utm}
+# prepare UTM coordinates matrix
+#we are calculating the UTM coordinates from UTM zone and northing and easting
+#UTM zone is actually a value from 29 to 31 in England
+utmcoor<-SpatialPoints(cbind(df$easting,df$northing), proj4string=CRS("+proj=utm +zone=30"))
+# converting
+longlatcoor<-spTransform(utmcoor,CRS("+proj=longlat"))
+```
+
+Let's check if for the data with missing longitude and latitude, the norting and easting data exists.
+
+```{r missing_longitude}
+#filter the data with missing longitude
+df %>% filter(is.na(df$longitude) == TRUE) -> dfl0
+unique(dfl0[,c("longitude","latitude", "northing","easting")])
+```
+
+We can notice that for the cases analyzed here, also *northing* and *easting* seems to be corrupted for most of the data. Also, where the latitudes are numbers, we see that actually there are not valid latitudes for England, being near the Ecuator. This is most probably due to the corruption of data during import, for the reason identified previously (missing or wrongly identified separator between name and address). Let's isolate the two cases with not valid latitudes for England.
+
+```{r northing_easting_corrupted}
+df %>% filter(is.na(df$longitude) == TRUE) -> dfl01
+dfl01 %>% filter(is.na(dfl01$latitude) == FALSE) -> dfl02
+dfl02[,c("name","address","postcode","latitude")]
+```
+
+We can confirm now that these two rows were imported incorrectly, name and address being merged accidentaly and address replaced with postcode, postcode with the latitude value.
+
+## Recover lat & long using Postcode
+
+One last method that we might use will be to exploit the Postal (ZIP) code. There are data sets with UK Postal code mapped on latitude and longitude. Because we cannot use northing and easting for the ~70 corrupted data, we might try to extract the latitude and longitude from the Postal code. For this, we will use an additional dataset on Kaggle, located at: <https://www.kaggle.com/danwinchester/open-postcode-geo> and we will merge our Pub data (the reduced set with missing coordinates) with this file.
+
+```{r merge_with_post_code_data}
+postcodes <- read.csv("../input/open-postcode-geo/open_postcode_geo.csv", stringsAsFactors=FALSE)
+#the file contains only the first word of the postcode, we trim the postcode in our data to first word before we try to merge
+pc <- cbind(postcodes[,c(1,8,9)])
+colnames(pc)<- c("postcode","lat","long")
+dfp <- merge(x=dfl0,y=pc,by="postcode")
+dfp$lat<-as.numeric(dfp$lat)
+dfp$long<-as.numeric(dfp$long)
+```
+
+```{r include=FALSE}
+rm(postcodes)
+gc()
+```
+## Show the pubs with recovered coordinates
+
+Let's represent only the pubs with coordinates obtained from merging with additional data based on post-code.
+We will use cluster option to aggregate the markers on map.
+
+```{r leaflet_repaired_pubs_locations}
+  leaflet(data = dfp) %>%
+  addTiles() %>%
+  addMarkers(lat=dfp$lat, lng=dfp$long, clusterOptions = markerClusterOptions(),
+             popup= paste("<strong>Name: </strong>", dfp$name,
+                          "<br><br><strong>Address: </strong>", dfp$address,
+                          "<br><strong>Postcode (trimmed): </strong>", dfp$postcode,
+                          "<br><strong>Local authority: </strong>", dfp$local_authority
+             ))
+```
+
+## Show the pubs with existing coordinates
+
+Separatelly we will show the data with correct longitude and latitude. Before showing the original data, we remove the rows with missing values. Because of density of these data, one can see that Leaflet Markers has some display errors where multiple pubs are located very close.
+
+```{r leaflet_all}
+
+  df %>% filter(is.na(df$longitude) == FALSE) -> df1
+
+  leaflet(data = df1) %>%
+  addTiles() %>%
+  addMarkers(lat=df1$latitude, lng=df1$longitude, clusterOptions = markerClusterOptions(),
+             popup= paste("<strong>Name: </strong>", df1$name,
+                          "<br><br><strong>Address: </strong>", df1$address,
+                          "<br><strong>Postcode: </strong>", df1$postcode,
+                          "<br><strong>Local authority: </strong>", df1$local_authority
+             ))
+```
+
+
+Thank you for reading this Kernel. I would appreciate very much your comments and suggestions.
