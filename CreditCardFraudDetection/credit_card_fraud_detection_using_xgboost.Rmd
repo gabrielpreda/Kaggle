@@ -1,0 +1,233 @@
+---
+title: "Credit Card Fraud Detection using XGBoost (AUC=0.97)"
+author: "Gabriel Preda"
+date: "September 5, 2017"
+output: html_document
+---
+
+
+This Kernel uses and modifies code from https://www.r-bloggers.com/illustrated-guide-to-roc-and-auc/
+
+
+```{r setup, include=FALSE}
+library(pROC)
+library(xgboost)
+library(dplyr)
+library(ggplot2)
+```
+
+### Prepare the data
+
+Load the data source and split it in 3 data sets:  
+
+* A training set, using 90% of the total data;  
+* A test set, using 5% of the total data; this set is presented to the training algorithm in parallel with the training set and both will be watched during training in order to measure the progress of the training and the accuracy of prediction achieved for the test set;  
+* A third set, using 5% of the total data, verification set, fresh data not presented 
+to the training algorithm; while the test set is used to measure the accuracy of 
+prediction with data not used in training, the verification set will represent 
+the "real" data for which we apply the prediction algorithm.  
+
+
+```{r}
+
+raw.data <- read.csv("../input/creditcard.csv")
+
+nrows <- nrow(raw.data)
+set.seed(314)
+indexTR <- sample(1:nrow(raw.data), 0.9 * nrows)
+
+#separate train, test and validation sets
+trainset = raw.data[indexTR,]
+
+notrain = raw.data[-indexTR,]
+nrowsTE <- nrow(notrain)
+
+indexTE <- sample(1:nrow(notrain), 0.5 * nrowsTE )
+testset <- notrain[indexTE,]
+verset =   notrain[-indexTE,]
+```
+
+
+### Prepare the model
+
+The objective function (the one to be optimized) is logistic regression. The evaluation metric used is *AUC* ([Area under curve](https://en.wikipedia.org/wiki/Receiver_operating_characteristic#Area_under_the_curve)). The parameters were chossen to maximize the *AUC* for both train and testing set. We keep the default parameters, we only set eta (which controls the learning rate) to 0.25 (default is 0.3), to slow the training and avoid thus the overfitting.
+
+```{r}
+
+params <- list(
+  "objective"           = "reg:logistic",
+  "eval_metric"         = "auc",
+  "eta"                 = 0.25
+)
+```
+
+
+### Prepare the matrices
+
+We prepare the input matrices for the XGBoost algorithm, creating from train, test and verification sets the xgb.DMatrix corresponding objects.
+
+```{r}
+dMtrain <- xgb.DMatrix(as.matrix(trainset %>% select(-Class)), label = trainset$Class)
+dMtest <- xgb.DMatrix(as.matrix(testset %>% select(-Class)), label = testset$Class)
+dMverif <- xgb.DMatrix(as.matrix(verset %>% select(-Class)), label = verset$Class)
+```
+
+
+### Run the model
+
+We add both train and test data to the watchlist so that we can monitor *AUC* progress for both. We also set number of the rounds to 250, the early stopping round to 10. (training will stop if, after a number of rounds equal with thi number, the performance doesn't improve). We set as well a flag to print every 5 iteration the AUC for train and test set.
+
+
+```{r}
+watchlist <- list(train=dMtrain, test=dMtest)
+nRounds <- 250
+earlyStoppingRound <- 10
+printEveryN = 5
+
+model_xgb <- xgb.train(params=params,
+                       data=dMtrain,
+                       maximize=TRUE,
+                       nrounds=nRounds,
+                       nthread=3,
+                       early_stopping_round=earlyStoppingRound,
+                       watchlist = watchlist,
+                       print_every_n=printEveryN)
+```
+
+### Variable importance
+
+The *xgb.importance* function creates a data.table with the most important features of the model. We plot the importance table using *xgb.ggplot.importance*
+
+```{r}
+importance <- xgb.importance(colnames(dMtrain), model = model_xgb)
+xgb.ggplot.importance(importance)
+```
+
+### Utility functions
+
+We introduce two utility functions:  
+
+#### calculate_roc_auc
+
+This function calculates the *receiver operating characteristic -ROC*(https://en.wikipedia.org/wiki/Receiver_operating_characteristic).
+First introduced in WWII, the ROC curve plot the true positive rate (Sensitivity) 
+against the false positive rate (100-Specificity) for different cut-off points of a 
+parameter.  The parameter is the *threshold* used to separate between predicted
+positives and negatives. With threshold variable between 0 and 1, we calculate 
+the number of true positive, false positive, true negative, false negative, true 
+positive ratio, false positive ratio, cost function and AOC. AOC is Area under 
+curve of receiver operation characteristic.  
+
+
+
+```{r}
+
+# calculate ROC and AUC 
+# see https://en.wikipedia.org/wiki/Receiver_operating_characteristic
+
+calculate_roc_auc <- function(dataset, cost_of_fp, cost_of_fn, n=100) {
+  
+  tp <- function(dataset, threshold) {
+    sum(dataset$predicted >= threshold & dataset$Class == 1)
+  }
+  
+  fp <- function(dataset, threshold) {
+    sum(dataset$predicted >= threshold & dataset$Class == 0)
+  }
+  
+  tn <- function(dataset, threshold) {
+    sum(dataset$predicted < threshold & dataset$Class == 0)
+  }
+  
+  fn <- function(dataset, threshold) {
+    sum(dataset$predicted < threshold & dataset$Class == 1)
+  }
+  
+  tpr <- function(dataset, threshold) {
+    sum(dataset$predicted >= threshold & dataset$Class == 1) / sum(dataset$Class == 1)
+  }
+  
+  fpr <- function(dataset, threshold) {
+    sum(dataset$predicted >= threshold & dataset$Class == 0) / sum(dataset$Class == 0)
+  }
+  
+  cost <- function(dataset, threshold, cost_of_fp, cost_of_fn) {
+    sum(dataset$predicted >= threshold & dataset$Class == 0) * cost_of_fp + 
+      sum(dataset$predicted < threshold & dataset$Class == 1) * cost_of_fn
+  }
+
+  threshold_round <- function(value, threshold)
+  {
+    return (as.integer(!(value < threshold)))
+  }
+  #calculate AUC (https://en.wikipedia.org/wiki/Receiver_operating_characteristic#Area_under_the_curve)
+  auc_ <- function(dataset, threshold) {
+    auc(dataset$Class, threshold_round(dataset$predicted,threshold))
+  }
+  
+  roc <- data.frame(threshold = seq(0.01,0.99,length.out=n), tpr=NA, fpr=NA)
+  roc$tp <- sapply(roc$threshold, function(th) tp(dataset, th))
+  roc$fp <- sapply(roc$threshold, function(th) fp(dataset, th))
+  roc$tn <- sapply(roc$threshold, function(th) tn(dataset, th))
+  roc$fn <- sapply(roc$threshold, function(th) fn(dataset, th))
+  roc$tpr <- sapply(roc$threshold, function(th) tpr(dataset, th))
+  roc$fpr <- sapply(roc$threshold, function(th) fpr(dataset, th))
+  roc$cost <- sapply(roc$threshold, function(th) cost(dataset, th, cost_of_fp, cost_of_fn))
+  roc$auc <-  sapply(roc$threshold, function(th) auc_(dataset, th))
+  
+  return(roc)
+}
+```
+
+#### plot_auc
+
+This function plots the AUC graph: first detects the index of minimum cost, based on 
+this, calculate the threshold corresponding to the minimum cost and find the 
+corresponding index of the threshold in roc data.table.  
+
+
+```{r}
+plot_auc <- function(roc, cost_of_fp, cost_of_fn) {
+  library(gridExtra)
+  
+  norm_vec <- function(v) (v - min(v))/diff(range(v))
+  
+  # index of the minimum cost
+  id_min_cost = which.min(roc$cost)
+  # set threshold to the minimum cost point
+  threshold = roc$threshold[id_min_cost]
+  # find index of the threshold
+  idx_threshold = which.min(abs(roc$threshold-threshold))
+  
+  col_ramp <- colorRampPalette(c("green","orange","red","black"))(100)
+  col_by_cost <- col_ramp[ceiling(norm_vec(roc$cost)*99)+1]
+
+  title <- sprintf("AUC = %.4f (threshold set at %.2f)",  roc$auc[id_min_cost], threshold)
+  
+  subtitle <- sprintf("TP:%d FP:%d TN:%d FN:%d TPR:%.2f FPR:%f", roc$tp[id_min_cost], roc$fp[id_min_cost], roc$tn[id_min_cost], roc$fn[id_min_cost], roc$tpr[id_min_cost], roc$fpr[id_min_cost])
+  
+  p_auc <- ggplot(roc, aes(threshold, auc)) +
+    geom_line(color=rgb(0,0,1,alpha=0.3)) +
+    geom_point(color=col_by_cost, size=2, alpha=0.5) +
+    labs(x="Threshold", y="Area under curve (AOC)", title=title, subtitle=subtitle) + 
+    geom_vline(xintercept=threshold, alpha=0.5, linetype="dashed")
+  p_auc
+}
+```
+
+### Applying the model to verification set
+
+From the total data set, besides the training and testing sets we separated the verification set, not used in the training (for actual training or vor validation/testing). This verification set is used for the prediction. The prediction is then evaluated using *calculate_roc_auc* function and we plot the AUC graph (AUC vs. threshold). The AUC we obtain for the value of threshold corresponding to a min. of cost function is threshold = 0.19.
+
+```{r}
+
+#apply model
+verset$predicted <- predict(model_xgb ,dMverif)
+#calculate TPR, TFR, AUC
+roc_auc <- calculate_roc_auc(verset, 1, 2, n = 99)
+plot_auc(roc_auc, 1, 2)
+
+```
+
+With the AUC for best step train:0.991749  and test:0.993127, for the verification 
+set we obtained an AUC:0.9736 (at the threshold value of 0.17).
