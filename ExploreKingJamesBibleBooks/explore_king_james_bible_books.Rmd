@@ -1,0 +1,338 @@
+---
+title: "Explore King James Bible Books"
+author: "Gabriel Preda"
+date: "September 30, 2017"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(tm)
+library(wordcloud)
+library(sentimentr)
+library(reshape2)
+library(ggplot2)
+library(dplyr)
+```
+
+
+# Introduction
+
+We will analyze the text of the King James Bible. King James Bible (KJB) or Authorized 
+Version (AV) is the first Bible translation for the Church of England in English. The
+Translation started in 1604 and completed in 1611.
+
+![King James Bible title page, by Church of England (Public domain), via Wikimedia Commons](https://upload.wikimedia.org/wikipedia/commons/e/e8/King-James-Version-Bible-first-edition-title-page-1611.png)
+
+
+# Input and preprocess the data
+
+Project Gutenberg books contains usually a header and a footer. The header has an introduction to the project and the book itself. The footer contains the legal aspects and disclaimers. As neither the header or the footer is relevant for the analysis we would like to do, let's  eliminate both. Then start the analysis of the actual book text. We initialize two variables with the dimmensions of both header and footer (obtained after manually inspecting the text). We read the text file with *read_lines* function and then trim both the header and the footer.
+
+```{r read}
+gutenbergHeaderSize = 37
+gutenbergFooterSize = 373
+
+bibleText = read_lines('../input/pg10.txt',skip=gutenbergHeaderSize)
+bibleText <- bibleText[1:(length(bibleText)-gutenbergFooterSize)]
+```
+
+# Add books (chapters) information
+
+The Bible has 66 books. Let's include in our analysis the text split on books. We will use the list of books names (retrieved from [Wikipedia](https://en.wikipedia.org/wiki/List_of_books_of_the_King_James_Version)) to extract the book start indices. To match the titles in the list with the titles in the text we use the *pmatch* function which allows partial match. As some of the book titles in our text differ from our titiles, we have to do few iterations to correct some of the titles (not shown here). After retrieving the book start index for each book, we update the list of book (chapters) titles with the actual ones (in the text). For example, the title for the first book in the Project Gutenberg text is "The First Book of Moses:  Called Genesis". 
+
+```{r books}
+nLines <- length(bibleText)
+
+chapterName <- c("The First Book of Moses", "The Second Book of Moses", "The Third Book of Moses",
+     "The Fourth Book of Moses","The Fifth Book of Moses", "The Book of Joshua",
+     "The Book of Judges", "The Book of Ruth", "The First Book of the Kings",
+     "The Second Book of the Kings", "The Third Book of the Kings", "The Fourth Book of the Kings",
+     "The First Book of the Chronicles", "The Second Book of the Chronicles", "Ezra",
+     "The Book of Nehemiah", "The Book of Esther", "The Book of Job", "The Book of Psalms",
+     "The Proverbs", "Ecclesiastes", "The Song of Solomon", "The Book of the Prophet Isaiah",
+      "The Book of the Prophet Jeremiah","The Lamentations of Jeremiah",
+      "The Book of the Prophet Ezekiel", "The Book of Daniel", "Hosea",
+      "Joel", "Amos", "Obadiah", "Jonah","Micah", "Nahum", "Habakkuk", 
+     "Zephaniah", "Haggai","Zechariah","Malachi",
+     "The Gospel According to Saint Matthew", "The Gospel According to Saint Mark", "The Gospel According to Saint Luke",
+    "The Gospel According to Saint John","The Acts of the Apostles","The Epistle of Paul the Apostle to the Romans",
+    "The First Epistle of Paul the Apostle to the Corinthians","The Second Epistle of Paul the Apostle to the Corinthians","The Epistle of Paul the Apostle to the Galatians",
+    "The Epistle of Paul the Apostle to the Ephesians", "The Epistle of Paul the Apostle to the Philippians", "The Epistle of Paul the Apostle to the Colossians",
+    "The First Epistle of Paul the Apostle to the Thessalonians","The Second Epistle of Paul the Apostle to the Thessalonians","The First Epistle of Paul the Apostle to Timothy",
+    "The Second Epistle of Paul the Apostle to Timothy","The Epistle of Paul the Apostle to Titus","The Epistle of Paul the Apostle to Philemon",
+    "The Epistle of Paul the Apostle to the Hebrews", "The General Epistle of James","The First Epistle General of Peter",
+    "The Second General Epistle of Peter","The First Epistle General of John","The Second Epistle General of John",
+    "The Third Epistle General of John","The General Epistle of Jude","The Revelation of Saint John the Devine")
+
+idx <- pmatch(chapterName,bibleText)
+chapterName <- bibleText[idx]
+```
+
+# Perform text analysis
+
+## Prepare a corpus and a term-document matrix
+
+Let's prepare the input text for processing using 'tm' library. First, create a corpus. Then remove punctuation, numbers, English stopwords and archaisms from King James time (custom made list, still need to be updated). Then, create the Term-Document matrix from the corpus. Because the full text of Bible is too long for this processing (and will exceed the allowed size), we will only extract a fraction fom the whole text before creating the corpus.
+
+```{r corpus}
+#build a corpus
+
+set.seed(314)
+sampleFactor = 0.2
+bibleTextExcerpt = sample(bibleText, (length(bibleText)*sampleFactor))
+myCorpus <- Corpus(VectorSource(bibleTextExcerpt))
+
+myCorpus = tm_map(myCorpus, content_transformer(tolower))
+# remove punctuation
+myCorpus = tm_map(myCorpus, removePunctuation)
+# remove numbers
+myCorpus = tm_map(myCorpus, removeNumbers)
+
+kingJamesArchaisms = c("thou", "thee", "thy", "hath", "hast", "saith", "shalt", "thine")
+myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"), 
+                              stopwords('SMART'), kingJamesArchaisms))
+
+myDtm = TermDocumentMatrix(myCorpus,
+                           control = list(minWordLength = 1))
+
+```
+
+
+## Create a wordcloud with most frequent concepts
+
+Here we extract a word matrix from the Term Document Matrix. Then we calculate the 
+frequency of words (we also sort in decreasing order, so that we can display the more 
+frequent words in top of the wordcloud). We extract also the words names and then  
+create a data frame with both the words and their frequencies. We can use this data 
+frame to create the wordcloud of most frequent words (only words with frequency above
+50 are shown; please note that this is not the real frequency, because of sub-sampling
+of the Bible text).
+
+
+```{r wordcloud}
+m <- as.matrix(myDtm)
+# calculate the frequency of words
+v <- sort(rowSums(m), decreasing=TRUE)
+myNames <- names(v)
+d <- data.frame(word=myNames, freq=v)
+wctop <-wordcloud(d$word, d$freq, min.freq=50, colors=brewer.pal(9,"Set1"))
+```
+
+We can display the most frequent words as well in a bar plot graph. Please note that 
+the frequency displayed is just a fraction (~1/5) from the real one, since we 
+subsampled the entire text:
+
+```{r frequency_top}
+  ggplot(d[1:10,], aes(x=reorder(word,freq), y=freq)) +
+  geom_bar(stat="identity", fill="tomato") +
+  coord_flip() +
+  labs(title="Most frequent words in King James Bible", x="Word", y="Frequency")
+```
+
+
+The previous calculations were quite memory-intensive. So we release the memory used 
+before.
+
+```{r cleanup}
+rm(m,v,d)
+gc()
+```
+
+## Prepare and plot a word dendogram for the Bible
+
+We create a word dendogram to show the relationship between the most frequent words 
+in Bible. From the sparse term-document matrix we create a standard data frame. 
+
+```{r dendogram, include=FALSE}
+# visualize cluster Dendogram
+
+# convert the sparse term-document matrix to a standard data frame
+mydata.df <- as.data.frame(inspect(removeSparseTerms(myDtm, sparse=0.999)))
+```
+The data is scaled using *scale* function, resulting a matrix with the scaled values. 
+The data frame with the scaled values is then presented to *dist* function to compute 
+the distances between the rows of the matrix, using the metric specified. In our case, 
+we used an *euclidian* metric. The resulted distance matrix is then presented to *hclust* 
+function to perform a hierarchical cluster analysis. We plot then the result as a 
+cluster dendogram.
+```{r scale_distance_dendogram}
+mydata.df.scale <- scale(mydata.df)
+d <- dist(mydata.df.scale, method = "euclidean") # distance matrix
+fit <- hclust(d, method="ward.D")
+plot(fit, xaxt = 'n', yaxt='n', xlab = "Word clustering using ward.D method", ylab = "",
+     main="Cluster Dendogram for words used in King James Bible") # display dendogram?
+
+groups <- cutree(fit, k=5) # cut tree into 5 clusters
+# draw dendogram with blue borders around the 5 clusters
+rect.hclust(fit, k=5, border="blue")
+```
+
+
+## Compare *The Book of Job* with  *The Gospel According to Saint John* 
+
+Let's compare two books, one from the Old Testament and one from the New Testament. Let's
+pick *The Book of Job* (Book #18) and *The Gospel According to Saint John* (Book #43) for our comparison.
+
+```{r compare_books}
+
+bookJobText <- bibleText[idx[18]:(idx[19]-1)]
+bookJohnText <- bibleText[idx[43]:(idx[44]-1)]
+
+prepareWordCloud <- function(bookText) {
+    myCorpus <- Corpus(VectorSource(bookText))
+    myCorpus = tm_map(myCorpus, content_transformer(tolower))
+    myCorpus = tm_map(myCorpus, removePunctuation)
+    myCorpus = tm_map(myCorpus, removeNumbers)
+    kingJamesArchaisms = c("thou", "thee", "thy", "hath", "hast", "saith", "shalt", "thine")
+    myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"), 
+                                  stopwords('SMART'), kingJamesArchaisms))
+    myDtm = TermDocumentMatrix(myCorpus,
+                control = list(minWordLength = 1))
+    m <- as.matrix(myDtm)
+    v <- sort(rowSums(m), decreasing=TRUE)
+    myNames <- names(v)
+    d <- data.frame(word=myNames, freq=v)
+    return(d)
+}
+```
+
+
+Wordcloud for *The Book of Job*:
+
+```{r job}
+    d<- prepareWordCloud(bookJobText)
+    wctop <-wordcloud(d$word, d$freq, min.freq=10, colors=brewer.pal(9,"Set1"))
+```
+
+
+Wordcloud for *The Gospel According to Saint John*:
+```{r john}
+    d<- prepareWordCloud(bookJohnText)
+    wctop <-wordcloud(d$word, d$freq, min.freq=10, colors=brewer.pal(9,"Set1"))
+```
+
+We can see that while in *The Book of Job* besides *God* and *man* are most frequent
+words, in *The Gospel According to Saint John*, *Jesus* and *Father* and *man* are
+the most frequent words. Also, we can spot in *The Book of Job* few quite negative words, 
+like *wiked*, *iniquity*, *darkness*. Let's continue with a sentiment analysis for the King James
+Bible Books.
+
+
+# Sentiment analysis
+
+For the sentiment analysis, the *sentiment* function from the package *sentimentr* is used. The default dictionary used by this function is Jockers (2017). The algorithm allows also fine-tunning of polarity sentiment analysis calculation. For the current analysis, let's start with the default parameters. The function returns a data frame with element and sentence id's, word count and sentiment polarity factor value. A 0 value indicates a *neutral* factor, a negative value a *negative* sentiment and a *positive* value a positive sentiment factor. We add to the resulted data frame the chapter (book) information (we set *chapter* column value with the current book name)
+
+```{r sentiment}
+f <- function(x) { idxs <- !is.na(x);x[idxs][cumsum(idxs)]}
+
+sentiments <- sentiment(bibleText)
+sentiments$chapter <- NA
+sentiments$chapter[idx] <- chapterName
+sentiments$chapter <- f(sentiments$chapter)
+```
+
+Let's prepare the data as well to show the cumulative sentiment.
+In the following code snipet, the first 2 lines are from [Donye](https://www.kaggle.com/donyoe) Kernel, [Cumulative Sentiment](https://www.kaggle.com/donyoe/cumulative-sentiment):
+```{r cumulative}
+cumulativeSentiment <- sentiments[,mean(sentiment),by=element_id]
+cumulativeSentiment$cumsumsent <- cumsum(x = cumulativeSentiment$V1)
+cumulativeSentiment$chapter <- NA
+cumulativeSentiment$chapter[idx] <- chapterName
+cumulativeSentiment$chapter <- f(cumulativeSentiment$chapter)
+```
+
+## Sentiment analysis for the Bible Books
+
+Compute Min, Max and Mean aggregate functions values for each King James Book.
+
+
+```{r prepare_plot}
+# group by chapter, calculate min, max, mean
+sentiments %>% group_by(chapter) %>% 
+  summarize(min = min(sentiment), 
+  max = max(sentiment), mean = mean(sentiment), id=min(element_id)) %>% 
+  arrange(id) %>% ungroup() -> smean
+
+# melt and plot min, max, mean (chapter) on the same graph
+sentiments$category <- sentiments$chapter
+msent <- merge(melt(smean[1:4], id.vars = "chapter"),smean[,c(1,5)])
+
+```
+
+Plot the Min, Max and Mean values:
+
+```{r plot_sentiments_all}
+  ggplot(msent, aes(x=reorder(chapter,-id), y=value, fill=variable)) +
+  geom_bar(stat="identity") +
+  theme(axis.text=element_text(size=5))+
+  coord_flip() +
+  labs(title="Sentiment profile for each Book", x="Book name", y="Sentiments values (min, max, mean)")
+```
+
+Plot the Mean value only:
+
+```{r plot_sentiments_mean}
+  ggplot(smean, aes(x=reorder(chapter,-id), y=mean)) + 
+  geom_bar(stat='identity', fill = "#0000FF") + 
+  theme(axis.text=element_text(size=5))+
+  coord_flip() +
+  labs(title="Sentiment value (mean) for each Book", x="Book name", y="Sentiments value (mean)")
+```
+
+
+## Cumulative sentiment for the Bible Books
+
+We show first the cumulative sentiments graph for all King James Bible Books:
+
+```{r plot_cumulative_old}
+  op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+
+  plot(x=cumulativeSentiment$element_id, y=cumulativeSentiment$cumsumsent, col=factor(cumulativeSentiment$chapter),
+       xlab = "Book", ylab = "Cumulative Sentiment", axes = FALSE)
+  axis(side = 2)
+  text(idx, y=par("usr")[3]-0.5, labels = chapterName, srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+  abline(h = seq(1, 1400, 200), v = idx, col = "lightgray", lty = 1)
+```
+
+Then the the cumulative stentiments graph for the Old Testament Books:
+
+```{r plot_cumulative_new}
+  
+  cGospel = 40
+  pGospel = idx[cGospel]
+  final = nrow(cumulativeSentiment)
+  op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+
+  plot(x=cumulativeSentiment$element_id[1:pGospel-1], y=cumulativeSentiment$cumsumsent[1:pGospel-1], col=factor(cumulativeSentiment$chapter[1:pGospel-1]),
+       xlab = "Book", ylab = "Cumulative Sentiment", axes = FALSE)
+  axis(side = 2)
+  text(idx[1:cGospel-1], y=par("usr")[3]+0.5, labels = chapterName[1:cGospel-1], srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+  abline(h = seq(1, 1400, 200), v=idx, col = "lightgray", lty = 1)
+
+```
+
+And for the New Testament Books:
+
+```{r plot_cumulative_all}
+  op0 = par();  op1 = op0$mar;  op1[1] = 10;  par(mar = op1)
+
+  plot(x=cumulativeSentiment$element_id[pGospel:final], y=cumulativeSentiment$cumsumsent[pGospel:final], col=factor(cumulativeSentiment$chapter[pGospel:final]),
+       xlab = "Book", ylab = "Cumulative Sentiment", axes = FALSE)
+  axis(side = 2)
+  text(idx[cGospel:66], y=par("usr")[3]+0.5, labels = chapterName[cGospel:66], srt = 90, cex = 0.6, pos = 2, xpd = TRUE)
+  abline(h = seq(1, 1400, 200), v=idx, col = "lightgray", lty = 1)
+```
+
+We can observe the preponderent positive sentiment profile for the New Testament Books.
+
+Thank you for reading through this Kernel. I will appreciate your feedback and suggestions for improvement.
+
