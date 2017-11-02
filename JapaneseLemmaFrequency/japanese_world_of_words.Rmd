@@ -1,0 +1,328 @@
+---
+title: "Japanese World of Words"
+author: "Gabriel Preda"
+date: "August 29, 2017"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(scatterplot3d)
+library(Unicode)
+library(hash)
+```
+
+# Introduction
+
+I was inspired in creating this R Markdown kernel by the <https://www.kaggle.com/alvations/distribution-of-hiragana-katakana-and-kanji> kernel written in Python by Liling Tan. I thought to dig a bit more in the hidden treasures of this small data set.
+
+The dataset contains the first 15,000 lemmas (words) of Japanese, ranked by frequency. There are simply 3 columns of data:
+* Rank
+* Frequency (fractionary, because data is normalized)
+* Lemma
+
+At a quick inspection, we can see that the data contains Hiragana, Katakana (Japanese silabaries), Kanji (ideograms), Romaji (Roman words and characters) as well as special characters. Some words contains combined Katakana, Hiragana, Kanji. We would like to investigate this variety. 
+
+```{r}
+df <- read.csv("..//input//japanese_lemmas.csv", encoding = "UTF-8",  stringsAsFactors=FALSE)
+```
+
+# Including Hiragana and Katakana 
+
+One thing that bothered me while looking to Liling Tan solution to include Hiragana and 
+Katakana lists was that she had to include the list explicitly. 
+I searched a bit and observed that Hiragana and Katakana have both a compact Unicode 
+interval and, thanks to the  R package "Unicode", we can expand Unicode 
+intervals in list of characters.
+
+Hiragana unicode char set range: *\U3040 - \U3097*  
+katakana unicode char set range: *\U30A0 - \U30FF*  
+
+
+```{r}
+hiraCharSet <- as.u_char_range("3040..309F")
+kataCharSet <- as.u_char_range("30A0..30FF")
+
+hiragana <- as.data.frame(u_char_inspect(hiraCharSet))$Char
+katakana <- as.data.frame(u_char_inspect(kataCharSet))$Char
+```
+
+# Selecting the words not encoded as unicode
+
+There are several words encoded not as unicode; let's see what are these words.
+
+```{r}
+dfUnknown <- df[(Encoding(df$lemma) == 'unknown'),]
+dfUnknownNr <- nrow(dfUnknown)
+```
+
+
+Let's see now the resulted lists of Hiragana and Katakana, and also the words with unknown encoding.
+
+# Hiragana and Katakana list {.tabset .tabset-fade .tabset-pills}
+## Hiragana
+```{r}
+hiragana
+```
+## Katakana
+```{r}
+katakana
+```
+## Unknown
+```{r}
+dfUnknown$lemma
+```
+
+
+# Explore words length
+
+## Longest words in Japanese
+
+We will start by looking to the length of words. Let's see what are the longest words
+in Japanese.
+
+```{r}
+#What is the longest word, its number of characters, rank and frequency
+maxLength <- max(nchar(df$lemma))
+rankMaxLength <- which.max(nchar(df$lemma))
+frequencyMaxLength <- df$frequency[rankMaxLength]
+wordMaxLength <- df$lemma[rankMaxLength]
+
+s <- sprintf("Max word: %s; Length: %d; Rank: %d; Frequency: %5.2f",wordMaxLength, maxLength,
+             rankMaxLength,frequencyMaxLength)
+print(s)
+```
+We can see that this is a Katakana-only formed word (typically imported words from other languages - titically English -  are transliterated in a Hiragana-like silabary, they then to be longer than Japanese words ), this (reads *Operētingushisutemu*) means, obviously *Operating system*
+
+Let's see now the top 10 of the longest words in Japanese
+
+```{r}
+#Top 10 max words
+df$length <- nchar(df$lemma)
+
+df %>% top_n(n=10, wt=length) %>% arrange(-length) %>% ungroup() -> df_top10
+
+sprintf("Lemma: %s length:%d rank:%d frequency:%3.1f",df_top10$lemma, df_top10$length, df_top10$rank, df_top10$frequency)
+```
+
+We see that actually all words in top 10 are formed by Katakana, 
+which was expected result, based on previous observation. 
+In top 10 are words with length of 12 (1), 10 (2) and 9. 
+
+We observe that there is one word with quite large frequency (*コミュニケーション*, 
+in English: *communication*), over 40, while the rest in top 10 have lower, around 2, 
+frequencies.
+
+## Summary of words, grouped by length
+
+We will represent the average and maximum frequency of words and number of words, 
+grouped by number of characters (length) of words. Because there is a high variation 
+(resulting in a concentration of points in a small part of the graph) on a normal scale,
+we will use a logaritmic scale on all 3 dimmensions. There will be one point for each 
+word length on the graph.
+
+```{r}
+# Summarize length of words
+df %>%
+  group_by(length) %>%
+  summarize(nums = length(length), minFreq = min(frequency), avgFreq = mean(frequency), maxFreq = max(frequency)) %>%
+  ungroup() -> dfl
+
+with(dfl, {
+  s3d <- scatterplot3d(log(avgFreq),log(maxFreq),log(nums), color = "#FF0000", pch=16,
+              type="h",
+              main="Frequencies and number of words, grouped by length",
+              xlab="Average Frequency (log scale)",
+              ylab="Maximum Frequency (log scale)",
+              zlab="Numbers of words in class (log scale)")
+  s3d.coords <- s3d$xyz.convert(log(avgFreq), log(maxFreq), log(nums))
+  text(s3d.coords$x, s3d.coords$y,     # x and y coordinates
+       labels=length,       # text to plot
+       pos=2, cex=.8)                  # shrink text 80% and place on right side of points)
+})
+```
+
+We can see here that, as a rule, there are in the same time less long words and are used less frequently than longer words. Althogh maximum both average and maximum frequency is for a 1-char word, the maximum number of words are in class 2-char i.e. Because we are here, let's also look back to [Zipf law](https://en.wikipedia.org/wiki/Zipf%27s_law).
+
+```{r}
+g <- ggplot(df, aes(x=rank, y=log(frequency))) + geom_line() +
+  labs(title="Zipf's Law: Log frequency vs. rank of words", x="Rank", y="Frequency (log scale)")
+g
+```
+
+# Frequency of words by type of characters
+
+We will identify now the number of words that have diferent types of characters. 
+After few iterations, we identified the following categories of words:  
+1. Words with hiragana only characters  
+2. Words with katakana only characters  
+3. Words with kanji only  
+4. Words with kanji combined with hiragana  
+5. Words with kanji combined with katakana  
+6. Words with combined hiragana and katakana characters  
+7. Words with *romaji* (from latin alphabet) or non-alphabetic characters  
+
+
+```{r}
+df$type = 0
+
+# separate the words in (hiragana only, katakana only, mixed kanji-hiragana, romaji, special characters)
+for(i in 1:nrow(df))
+{
+  nr <- nchar(df$lemma[i]); h = 0; k = 0;
+  for(j in 1:nr) {
+    x <- substr(df$lemma[i],j,j)
+    if(length(intersect(x,hiragana)) > 0) { h = h + 1;}
+    if(length(intersect(x,katakana)) > 0) { k = k + 1;}
+  }
+  if(h == nr) { df$type[i] = 1 } #hiragana only
+  if(k == nr) { df$type[i] = 2 } #katakana only
+  if((k == 0) && (h == 0)) {
+    if(Encoding(df$lemma[i]) == 'unknown') { df$type[i] = 7 } # romaji only
+    else { df$type[i] = 3 } # kanji only
+  }
+  if((k == 0) && (h < nr) && (h > 0)) { df$type[i] = 4 } # kanji and hiragana
+  if((h == 0) && (k < nr) && (k > 0)) { df$type[i] = 5 } # kanji and katakana
+  if((h > 0) && (k > 0) && ((h + k) == nr)) { df$type[i] = 6 } # hiragana and katakana
+}
+```
+
+We plot here several graphs with top 10 of length of various type of words, 
+function of type of characters composing the words. For convenience, 
+we will create a small function to display the various graphs.
+
+```{r}
+plotWordsTypeTop10 <- function(filterType, titleType) {
+  df %>%  filter(type == filterType) %>% top_n(n = 10, wt=length) %>% 
+  arrange(-length) %>% ungroup() -> dfType
+
+  g <- ggplot(dfType, aes(x=reorder(rank,length), y=length)) +
+  geom_bar(fill = "#BBFAA2", position = "dodge", stat="identity") +
+  coord_flip() +
+  geom_text(aes(label=length), hjust=1, position=position_dodge(width=0.6)) +
+  labs(title=titleType, x="Word rank", y="Length of word")
+g
+}
+```
+```{r}
+listWordsTypeTop10 <- function(filterType) {
+  df %>%  filter(type == filterType) %>% top_n(n = 10, wt=length) %>% 
+  arrange(-length) %>% ungroup() -> dfType
+  
+sprintf("Rank:%d Word: %s Length: %d Frequency:%3.1f ", 
+ dfType$rank, dfType$lemma, dfType$length, dfType$frequency)
+}
+```
+
+## Top 10 of various type of words {.tabset .tabset-fade .tabset-pills}
+### Hiragana
+```{r}
+  plotWordsTypeTop10(1,"Top 10 of longest words formed from hiragana only")
+  listWordsTypeTop10(1)
+```
+
+### Katakana
+```{r}
+  plotWordsTypeTop10(2,"Top 10 of longest words formed from katakana only")
+  listWordsTypeTop10(2)
+```
+
+### Kanji
+```{r}
+  plotWordsTypeTop10(3,"Top 10 of longest words formed from kanji only")
+  listWordsTypeTop10(3)
+```
+
+### Kanji & hiragana
+```{r}
+  plotWordsTypeTop10(4,"Top 10 of longest words formed from kanji and hiragana")
+  listWordsTypeTop10(4)
+```
+
+### Kanji & katakana
+```{r}
+  plotWordsTypeTop10(5,"Top 10 of longest words formed from kanji and katakana")
+  listWordsTypeTop10(5)
+```
+
+### Hiragana & katakana
+```{r}
+  plotWordsTypeTop10(6,"Top 10 of longest words formed from hiragana and katakana")
+  listWordsTypeTop10(6)
+```
+
+### Romaji
+```{r}
+  plotWordsTypeTop10(7,"Top 10 of longest words from romaji only characters")
+  listWordsTypeTop10(7)
+```
+
+####
+
+Let's see actually what are the numbers of each type of words identified until now.
+```{r}
+  df %>%  group_by(type) %>% summarize(nums=length(lemma)) %>% arrange(type) %>% ungroup() -> dfTypes
+
+  wordType <- c("Hiragana","Katakana", "Kanji", "Kanji & Hiragana",
+                "Kanji & Katakana", "Hiragana & Katakana", "Romaji")
+  dfTypes$wordType <- wordType
+  
+  g <- ggplot(dfTypes, aes(x=reorder(wordType,nums), y=nums)) +
+  geom_bar(fill = "#BBFAA2", position = "dodge", stat="identity") +
+  coord_flip() +
+  geom_text(aes(label=nums), hjust=1, position=position_dodge(width=0.6)) +
+  labs(title="Number of various types of words", x="Word type", y="Length of word")
+g
+
+```
+
+# Frequence of characters
+
+The lemma are composed, as we sow previously, by characters. We identified the words with content of various type of characters and we counted the number of words composed of different types of characters.
+Let's see now the distribution (number, rank, frequence) of individual characters (hiragana, katakana, kanji, romaji + special characters) composing these words. For this we will create a map using hash() package from R to store, for each character we find in the lemma list, the frequency of this character, by summing the list of frequency of words in which that character appears. To populate this map, we will parse all characters from all lemmas and accumulate the sum of frequency in the map.
+
+
+```{r}
+# Split a lemma into characters
+HH <- hash()
+for(i in 1:nrow(df))
+{
+  for(j in 1:nchar(df$lemma[i]))
+  {
+    crt <- substr(df$lemma[i],j,j)
+    if(length(HH[[crt]]) != 0) { HH[[crt]] <- HH[[crt]] + df$frequency[i] }
+    else { HH[[crt]] <- df$frequency[i] }
+  }
+}
+```
+
+Let's look now to the top 50 of the character list
+```{r}
+chars <- data.frame(keys(HH),values(HH), stringsAsFactors = FALSE)
+colnames(chars)<-c("Character","Frequency")
+chars %>%   top_n(20, wt=Frequency) %>% arrange(-Frequency) %>% ungroup() -> charsTop
+sprintf("Character: %s frequency: %3.1f", charsTop$Character, charsTop$Frequency)
+```
+
+We can observe that in the top we do have the *る* character, quite frequently used, and also part of many flectional forms, especially verbs, in Japanese. 
+
+## Zipf's law for characters
+
+Let's verify the Zipf's law for the japanese characters included in our dataset.
+
+```{r}
+chars %>% arrange(-Frequency) %>% ungroup() -> charsOrdered
+
+plot(log(charsOrdered$Frequency), type="l", main="Zipf's law for characters in the data set", xlab="Rank", ylab="Frequency of character (log scale)")
+```
+
+Thank you for reading through and I would appreciate very much any comments or suggestion for improvement of this kernel.
