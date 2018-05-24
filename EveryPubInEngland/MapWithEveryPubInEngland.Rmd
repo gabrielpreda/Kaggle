@@ -1,0 +1,657 @@
+---
+title: Map with Every Pub in England
+author: Gabriel Preda
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+```{r include=FALSE}
+library(dplyr)
+library(raster)
+library(leaflet)
+library(rgdal)
+library(rgeos)
+library(deldir)
+library(stringr)
+library(ggplot2)
+library(tm)
+library(wordcloud)
+```
+
+# **Introduction**
+
+
+![The Ale House Door, painting of c. 1790 by Henry Singleton, Wikipedia, public domain](https://upload.wikimedia.org/wikipedia/commons/4/49/Henry_Singleton_The_Ale-House_Door_c._1790.jpg)
+
+Pubs are an important part of British culture and history.   
+
+We will explore the data from <https://www.kaggle.com/rtatman/every-pub-in-england>
+
+This dataset includes information on 51,566 pubs. This dataset contains the following columns:
+
+* fsa_id (int): Food Standard Agency's ID for this pub.
+* name (string)L Name of the pub
+* address (string): Address fields separated by commas.
+* postcode (string): Postcode of the pub.
+* easting (int)
+* northing (int)
+* latitude (decimal)
+* longitude (decimal)
+* local_authority (string): Local authority this pub falls under.
+
+
+
+# **Data exploration**
+
+```{r read_the_data}
+df <- read.csv("../input/every-pub-in-england/open_pubs.csv", stringsAsFactors=FALSE)
+```
+
+Let's start to look a bit to the names, addresses, postcode and local authority
+```{r show_the_data}
+knitr::kable(head(df[,c("name","address","postcode","local_authority")],20),caption="Pub name, address, postcode and local authority")
+```
+
+
+The address looks structured mostly as a set of 4 items, the street or street address, the commune or city, the town and the county. The town appears to be entered with uppercases. Not all the addresses are structured the same, for example in line 9 and 10 the upper-case word is on the last position. The local authority appears to not be related to the county, for example Babergh, which is in Suffolk, appears to be as well the local authority for pubs in Essex.
+
+## Pubs per local authority
+
+Let's look now to the number of pubs per local authority. We will look first to the local authorities with largest number of pubs (top 20)
+```{r top_20_pubs_local_authority}
+df %>%
+  group_by(local_authority) %>%
+  summarize(pubs = length(local_authority)) %>%
+  top_n(n = 20, wt = pubs) %>% 
+  arrange(-pubs) %>%
+  ungroup() -> dflc
+  
+g <- ggplot(dflc, aes(x=reorder(local_authority,pubs), y=pubs)) +
+    geom_bar(stat='identity', fill = "gold", color="black") + 
+    theme_bw(base_size = 14) +
+  labs(title="Local authorities with largest number of pubs", x="Local authorities", y="Number of pubs") +
+  coord_flip()
+g
+```
+
+Let's see the local authorities with smaller number of pubs (bottom 20)
+```{r bottom_20_local_authorities}
+df %>%
+  group_by(local_authority) %>%
+  summarize(pubs = length(local_authority)) %>%
+  top_n(n = -20, wt = pubs) %>% 
+  arrange(-pubs) %>%
+  ungroup() -> dflc
+  
+g <- ggplot(dflc, aes(x=reorder(local_authority,pubs), y=pubs)) +
+  geom_bar(stat='identity', fill = "gold", color="black") + 
+    theme_bw(base_size = 14) +
+  labs(title="Local authorities with smallest number of pubs", x="Local authorities", y="Number of pubs") +
+  coord_flip()
+g
+```
+
+Let's also represent the local authorities names using a wordcloud. We will use for each local authority a different color
+and we will also range the local authorities base on the number of pubs in each local authority.
+
+```{r fig.width=10, fig.height=8,local_authorities_wordcloud}
+df %>%
+  group_by(local_authority) %>%
+  summarize(pubs = length(local_authority)) %>% arrange(-pubs) %>% ungroup() -> local_auth
+
+par(mfrow=c(1, 1),bg="grey97")
+extColors = colorRampPalette(brewer.pal(11,"Spectral"))(nrow(local_auth))
+wordcloud(words = local_auth$local_authority, freq = local_auth$pubs, random.order=F, rot.per=0, scale=c(2,0.4),
+                    ordered.colors=T, colors=extColors[factor(local_auth$local_authority)])
+title(paste0('Local authorities'),col.main='black',cex.main=1.2)
+```
+
+
+
+## Most frequent pub names
+
+We will try now to group the pubs by names and see which names are most frequent
+
+```{r frequent_names}
+df %>%
+  group_by(name) %>%
+  summarize(pubs = length(name)) %>%
+  top_n(n = 20, wt = pubs) %>% 
+  arrange(-pubs) %>%
+  ungroup() -> dfn
+g <- ggplot(dfn, aes(x=reorder(name,pubs), y=pubs)) +
+  geom_bar(stat='identity', fill = "gold", color="black") + 
+    theme_bw(base_size = 14) +
+  labs(title="Top 20 of most frequent pub names in England", x="Pub names", y="Number of pubs") +
+  coord_flip()
+g
+```
+
+## Longest pub names in England
+
+Let's see what are the longest pub names in England.
+
+```{r longest_names}
+df %>%
+  group_by(name) %>%
+  summarize(pubs = length(name)) %>%
+  top_n(n = 10, wt = str_count(name)) %>% 
+  arrange(-str_count(name)) %>%
+  ungroup() -> dfnp
+head(dfnp$name,10)
+```
+
+We can observe that actually the first name is a corruption, most probably due to separator and comma conflict. 
+The address was merged with the name during import. We will investigate further these annomalies.
+
+Let's represent the names, showing also the frequency. We remove the corrupted row. We show top 50.
+
+```{r fig.width=10, fig.height=8,longest_names_ggplot}
+df %>%
+  filter(name != "J D Wetherspoon \\\"The Star\\\",\"105 High Street, Hoddesdon, Hertfordshire") %>%
+  group_by(name) %>%
+  summarize(pnl = length(name)) %>%
+  top_n(n = 50, wt = str_count(name)) %>% 
+  arrange(-str_count(name)) %>%
+  ungroup() %>%
+  ggplot(aes(x=reorder(name,str_count(name)), y=str_count(name))) +
+  geom_bar(stat='identity', fill = "lightblue", color="black") + 
+    theme_bw(base_size = 10) +
+  labs(title="Top 50 of longest pub names in England", x="Pub names", y="Length of pub name") +
+  coord_flip()
+```
+
+
+## Dig into pub names topic - 1-grams
+
+Starting with frequency and length of pub names we discovered a lot of information. 
+Let's run a text analysis on the pub data names. We would like to identify the most 
+frequent words appearing in the Pub names. To save computation time and memory,
+we will run this analysis on a random sampled subset of the pub names data (10% of the 
+whole data). We start with 1-grams.
+
+
+```{r fig.width=10, fig.height=8,pub_names_wordcloud_1_gram}
+
+indexT <- sample(1:nrow(df), 0.1 * nrow(df))
+text <- df[indexT,"name"]
+
+myCorpus<-VCorpus(VectorSource(text))
+myCorpusClean <- myCorpus %>% 
+  tm_map(content_transformer(tolower)) %>% 
+  tm_map(content_transformer(removeNumbers)) %>% 
+  tm_map(content_transformer(removePunctuation)) %>%
+  tm_map(content_transformer(removeWords),tidytext::stop_words$word)
+
+tdm_1<- TermDocumentMatrix(myCorpusClean, control = list(minWordLength = 3))
+m_tdm_1 <-as.matrix(tdm_1)
+word.freq.1<-sort(rowSums(m_tdm_1), decreasing=T)
+
+set.seed(314)
+wordcloud(words=names(word.freq.1),freq = word.freq.1,random.order=F,colors=brewer.pal(9,"Set1"),max.words=100)
+title(paste0('Most frequent 1-grams in pub names'),col.main='black',cex.main=2)
+```
+
+Most frequent 1-grams used in pub names are `club`, `inn`, `arms`, `house`, `bar`, `social`, `hotel`, `public`, `royal`.
+
+## Words (used in pub names) cluster dendogram
+
+Let's see a cluster dendogram showing the relations between the frequent words
+used in the pubs names.
+
+
+```{r fig.width=8, fig.height=8,pub_names_cluster_dendogram}
+mydata.df <- as.data.frame(inspect(removeSparseTerms(tdm_1, sparse=0.99)))
+mydata.df.scale <- scale(mydata.df)
+d <- dist(mydata.df.scale, method = "euclidean") # distance matrix
+fit <- hclust(d, method="ward.D")
+plot(fit, xaxt = 'n', yaxt='n', xlab = "Word clustering using ward.D method", ylab = "",
+     main="Cluster Dendogram for words used in pub names") # display dendogram?
+
+groups <- cutree(fit, k=5) # cut tree into 5 clusters
+# draw dendogram with blue borders around the 5 clusters
+rect.hclust(fit, k=5, border="blue")
+```
+
+The cluster dendogram is showing not only the most frequent concepts used in pub names but also
+how these are used together. In the next analysis, for 2-grams, we will see that some of the 
+connected (through word dendogram) words are also appearing in the 2-grams (most frequent) list.
+
+## Pub names text analysis: 2-grams
+
+Let's check now 2-grams (groups of 2 words) from pub names.
+
+```{r fig.width=10, fig.height=8,pub_names_analysis_2_grams}
+
+#define 2-gram
+BigramTokenizer <- function(x) unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+tdm_2<- TermDocumentMatrix(myCorpusClean, control = list(tokenize = BigramTokenizer))
+m_tdm_2 <-as.matrix(tdm_2)
+word.freq.2<-sort(rowSums(m_tdm_2), decreasing=T)
+
+set.seed(314)
+wordcloud(words=names(word.freq.2),freq = word.freq.2,random.order=F,colors=brewer.pal(9,"Set1"),max.words=100)
+title(paste0('Most frequent 2-grams in pub names'),col.main='black',cex.main=2)
+```
+
+
+Most frequent 2-words expressions used in pub names are `social club`, `public house`, `bowling club`, `cricket club`,
+`golf club`, `royal british`, `red lion`, `british legion`, `fotball club`.
+
+
+## Pub names text analysis: 3-grams
+
+Let's check now 3-grams (group of 3 words) from pub names.
+
+```{r fig.width=10, fig.height=8,pub_names_text_analysis_3_grams}
+
+TrigramTokenizer <- function(x) unlist(lapply(ngrams(words(x), 3), paste, collapse = " "), use.names = FALSE)
+tdm_3 <- TermDocumentMatrix(myCorpusClean, control = list(tokenize = TrigramTokenizer))
+m_tdm_3 <-as.matrix(tdm_3)
+word.freq.3<-sort(rowSums(m_tdm_3), decreasing=T)
+
+set.seed(314)
+wordcloud(words=names(word.freq.3),freq = word.freq.3,random.order=F,colors=brewer.pal(9,"Set1"),max.words=100)
+title(paste0('Most frequent 3-grams in pub names'),col.main='black',cex.main=2)
+```
+
+We removed connection words therefore some of the 3-gramms will look incomplete and we will insert (between
+paranthesis) the mission connection word to reconstruct correctly the expression used in the pub name.
+Most frequent 3-grams are `Royal British Legion`, `sports (and) social club`, `British Legion Club`,
+`park golf club`, `rugby (and) football club`, `arms public house`, `lawn tennis club`, `white horse inn`
+`white hart inn`, `head public house`, `black horse inn`, `town football club`, `inn public house`.
+
+
+# **Analysis of geographical data**
+
+We intend to publish the data showing the pubs on a map. In order to do this, 
+we must make sure that latitude and longiture are valid. We will check that the values
+are numeric first.
+
+```{r geospatial}
+df$latitude <- as.numeric(df$latitude)
+df$longitude <- as.numeric(df$longitude)
+```
+
+After processing the latitude and longitude data we can see that some of the lat 
+and long are NAs i.e. the original data was not numeric. 
+Let's see how many rows have at least one lat or one long NAs.
+
+(latitudes)
+```{r latitudes}
+plyr::count(is.na(df$latitude))
+```
+(longitudes)
+```{r longitudes}
+plyr::count(is.na(df$longitude))
+```
+
+## Recover lat & long using northing, easting and UTM zone
+
+We can see that there are 70 missing latitudes and 72 missing longitudes, totally 
+72 data with missing either lat or long. Fortunatelly, we do have as well *northing* 
+and *easting* data and we will try to recover the *lat*/*long* information for the 
+pubs with missing lat/long from *northing* and *easting* coordinates. For this we will
+use *rgdal* *R* package. 
+We can calculate the UTM coordinates from UTM zone and northing and easting. 
+To find UTM zone we will need actually the approximative longitude. 
+UTM zone is calculated from longitude with the following function 
+(reference: https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system):
+
+```{r get_utm}
+long2UTM <- function(long) {
+    (floor((long + 180)/6) %% 60) + 1
+}
+```
+
+Applying the function to the limits of longitude and latitude in the whole data we might have a image of the UTM zones for England.
+
+```{r missing_long}
+#filter the data with missing longitude
+df %>% filter(is.na(df$longitude) == FALSE) -> dfl
+minLong <- min(dfl$longitude); minUTM <- long2UTM(minLong)
+maxLong <- max(dfl$longitude); maxUTM <- long2UTM(maxLong)
+printf <- function(...) cat(sprintf(...))
+printf("Min UTM: %d, Max UTM: %d", minUTM, maxUTM)
+```
+
+The UTM zone not being unique (is either 29, 30 or 31), if we would like to extract 
+somehow the UTM zone we will need to figure-out the approximate longitude of the data
+with missing lat / long and from the approximate longitude to infer the UTM. 
+Having rhe *northing* and *easting* then should be a simple operation to recover 
+the *latitude* and *longitude* for the same data, using the following code:
+
+```{r prepare_utm}
+# prepare UTM coordinates matrix
+#we are calculating the UTM coordinates from UTM zone and northing and easting
+#UTM zone is actually a value from 29 to 31 in England
+utmcoor<-SpatialPoints(cbind(df$easting,df$northing), proj4string=CRS("+proj=utm +zone=30"))
+# converting
+longlatcoor<-spTransform(utmcoor,CRS("+proj=longlat"))
+```
+
+Let's check if for the data with missing longitude and latitude, the norting and 
+easting data exists.
+
+```{r missing_longitude}
+#filter the data with missing longitude
+df %>% filter(is.na(df$longitude) == TRUE) -> dfl0
+unique(dfl0[,c("longitude","latitude", "northing","easting")])
+```
+
+We can notice that for the cases analyzed here, also *northing* and *easting* seems to be corrupted for most of the data. Also, where the latitudes are numbers, we see that actually there are not valid latitudes for England, being near the Ecuator. This is most probably due to the corruption of data during import, for the reason identified previously (missing or wrongly identified separator between name and address). Let's isolate the two cases with not valid latitudes for England.
+
+```{r northing_easting_corrupted}
+df %>% filter(is.na(df$longitude) == TRUE) -> dfl01
+dfl01 %>% filter(is.na(dfl01$latitude) == FALSE) -> dfl02
+dfl02[,c("name","address","postcode","latitude")]
+```
+
+We can confirm now that these two rows were imported incorrectly, name and address 
+being merged accidentaly and address replaced with postcode, postcode with the 
+latitude value.
+
+## Recover lat & long using Postcode
+
+One last method that we might use will be to exploit the Postal (ZIP) code. 
+There are data sets with UK Postal code mapped on latitude and longitude. 
+Because we cannot use northing and easting for the ~70 corrupted data, 
+we might try to extract the latitude and longitude from the Postal code. 
+For this, we will use an additional dataset on Kaggle, 
+[Open Postcode Geo](https://www.kaggle.com/danwinchester/open-postcode-geo) and we will 
+merge our Pub data (the reduced set with missing coordinates) with this file.
+
+### Read additional data
+
+```{r read_post_code_data}
+postcodes <- read.csv("../input/open-postcode-geo/open_postcode_geo.csv", stringsAsFactors=FALSE)
+#the file contains only the first word of the postcode, we trim the postcode in our data to first word before we try to merge
+pc <- cbind(postcodes[,c(1,8,9)])
+colnames(pc)<- c("postcode","lat","long")
+```
+
+### Merge pub data with postcode data
+
+```{r merge_pub_data_with_post_code_data}
+dfp <- merge(x=dfl0,y=pc,by="postcode")
+dfp$lat<-as.numeric(dfp$lat)
+dfp$long<-as.numeric(dfp$long)
+```
+
+```{r include=FALSE}
+rm(postcodes)
+invisible(gc())
+```
+
+
+## Show the pubs with recovered coordinates
+
+Let's represent only the pubs with coordinates obtained from merging with additional 
+data based on post-code.
+
+We will use cluster option to aggregate the markers on map.
+
+```{r leaflet_repaired_pubs_locations}
+  leaflet(data = dfp) %>%
+  addTiles() %>%
+  addMarkers(lat=dfp$lat, lng=dfp$long, clusterOptions = markerClusterOptions(),
+             popup= paste("<strong>Name: </strong>", dfp$name,
+                          "<br><br><strong>Address: </strong>", dfp$address,
+                          "<br><strong>Postcode (trimmed): </strong>", dfp$postcode,
+                          "<br><strong>Local authority: </strong>", dfp$local_authority
+             ))
+```
+
+## Show the pubs with existing coordinates
+
+Separatelly we will show the data with correct longitude and latitude. 
+Before showing the original data, we remove the rows with missing values. 
+Because of density of these data, one can see that Leaflet Markers has some display 
+errors where multiple pubs are located very close.
+
+```{r leaflet_all}
+
+  df %>% filter(is.na(df$longitude) == FALSE) -> df1
+
+  leaflet(data = df1) %>%
+  addTiles() %>%
+  addMarkers(lat=df1$latitude, lng=df1$longitude, clusterOptions = markerClusterOptions(),
+             popup= paste("<strong>Name: </strong>", df1$name,
+                          "<br><br><strong>Address: </strong>", df1$address,
+                          "<br><strong>Postcode: </strong>", df1$postcode,
+                          "<br><strong>Local authority: </strong>", df1$local_authority
+             ))
+```
+
+
+# **UK population density map approximated by pub density**
+
+Let's compare the UK population density map with the density of pubs.
+We represent first the UK population density map, from Wikipedia commons (2011).
+
+## UK population density
+
+<img src="https://upload.wikimedia.org/wikipedia/commons/5/5c/British_Isles_population_density_2011_NUTS3.svg" alt="Population density" width="480" align="center">
+
+
+## UK pub density
+
+And now let's aggregate the pubs in a Local Authority and create virtual geographical centers of the Local Authorities by 
+calculating the mean lat/long position of the pubs associated with a Local Authority. This center on the map will not
+superpose on the center of the Local Authority but will have instead an interesting propriety. By constructing the Voronoi
+polygons associated with these points, all the pubs inside a Voronoi polygon will be closer geographically to the virtual
+center of the Local Authority than to the other virtual centers of neighborhooding Local Autorities.
+
+
+
+```{r voronoi_polygons}
+#extract starbucks data 
+#for spatial representation, we will have to remove lat/long duplicates
+pubs <- df1[!duplicated(df1[c("latitude","longitude")]),]
+
+# prepare to define geometrical centers of pubs areas grouped on Local Authorities
+
+pubs %>% group_by(local_authority) %>% summarise(nr = length(latitude), lat=mean(latitude), lng=mean(longitude)) %>%
+  ungroup() -> pubsLocalAuthorities
+
+voronoiPoints <- SpatialPointsDataFrame(cbind(pubsLocalAuthorities$lng,pubsLocalAuthorities$lat), 
+                                        pubsLocalAuthorities, match.ID=TRUE)
+# a function to calculate the Voronoi polygons associated with the SpatialPoints representing
+# the position of the Local Authority "center" calculated as the geometrical center of the all
+# pubs locations associated with a Local Authority
+
+SpatialPointsToVoronoiPolygons <- function(sp) {
+  
+  # tile.list extracts the polygon data from the deldir computation
+  vor_desc <- tile.list(deldir(sp@coords[,1], sp@coords[,2]))
+  
+  lapply(1:(length(vor_desc)), function(i) {
+    
+    # tile.list gets us the points for the polygons but we
+    # still have to close them, hence the need for the rbind
+    tmp <- cbind(vor_desc[[i]]$x, vor_desc[[i]]$y)
+    tmp <- rbind(tmp, tmp[1,])
+    
+    # now we can make the Polygon(s)
+    Polygons(list(Polygon(tmp)), ID=i)
+    
+  }) -> vor_polygons
+  
+  # the metadata
+  sp_dat <- sp@data
+  
+  # match the IDs with the data & voronoi polygons
+  rownames(sp_dat) <- sapply(slot(SpatialPolygons(vor_polygons),
+                                  'polygons'),
+                             slot, 'ID')
+  #return as a SpatialPolygonsDataFrame - class to pass polygons with attributes
+  SpatialPolygonsDataFrame(SpatialPolygons(vor_polygons),
+                           data=sp_dat)
+  
+}
+
+voronoiPolygons <- SpatialPointsToVoronoiPolygons(voronoiPoints)
+
+```  
+
+We extract the area of each Voronoi polygon associated with a Local Authority (this is in **geographical** units, i.e. one area unit
+represent a unit of `1 degree of longitude` x `1 degree of latitude`). We divide each number of pubs in an Local Authority area to this
+area an we obtain a relative density (for better rendering, we also apply a log function to the result). We represent on a leaflet map
+the Voronoi polygons with the color intensity proportional with the pubs density. Try to <font color="green"><b>click on the polygons</b></font> to discover more details
+about each Local Authority.
+
+
+```{r map_pubs__local_authorities_leaflet}
+
+
+areas = list()
+pubs = list()
+for(polygonID in 1:length(voronoiPolygons)) {
+  area <- lapply(slot(voronoiPolygons[polygonID,1], "polygons"), function(x) lapply(slot(x,"Polygons"), function(y) slot(y, "area")))
+  areas[[polygonID]] <- area
+}
+
+area_df <- data.frame(unlist(areas))
+names(area_df)<-  c("area")
+
+voronoiPolygons$area <- area_df$area
+voronoiPolygons$density <- round(10* log(voronoiPolygons$nr / voronoiPolygons$area),0)
+
+bins <- c(min(voronoiPolygons$density), 30, 60, 90, max(voronoiPolygons$density))
+pal <- colorBin("Greens", domain = voronoiPolygons$density, bins = bins)
+
+leaflet(data=voronoiPolygons) %>%
+  # base map
+  addTiles() %>%
+  # Pubs - voronoi layer
+  addPolygons(data=voronoiPolygons,
+              stroke=TRUE, fillColor=~pal(voronoiPolygons$density), color="black",  weight=0.5,
+              fill=TRUE, fillOpacity = 0.6,
+              smoothFactor=0.5,
+              popup= paste("<strong>Local authority: </strong>", voronoiPolygons$local_authority,
+                "<br><strong>Pubs: </strong>", voronoiPolygons$nr,
+                "<br><strong>Pubs relative density: </strong>", voronoiPolygons$density, " (log scale)"
+                ))
+    
+```  
+
+
+
+We can easily observe that the map of the pubs density for UK (England, Wales and Scotland only) shows a similarity with the 
+map of the population density. At the coastal boundaries, the Voronoi polygons are diformed and the density (which uses, for
+calculation, the entire area, including the one exceeding the coastal lines) is affected. In the same time, the inland areas shows a
+clear similarity between the pub density and population density. The shape of the Voronoi polygons associated with the geometrical
+center of the Local Authorities are, of course, not identical, being less accurate in the case of the Local Authorities with a 
+complex shape. Thus we can conclude that the *pubs density could be a predictor of the population density in UK* with a certain
+degree of approximation.  
+
+On the boundaries the map does not look realistic, with the Voronoi polygons extending over the coastline. We will use border
+spatial information for UK to correct this. We will import GADM data for UK and then intersect the Voronoi polygons with the
+coastline to clip the polygons using the border of UK. This will show a more realistic map and in the same time will adjust the
+densities values, using a more real area for the administrative regions near the coastline.
+
+## UK pub density with the boundaries corrected
+
+
+
+We read a shapefile with the coastline information for UK.
+
+```{r map_pubs__local_authorities_leaflet1}
+#Local
+#shape <- readOGR(dsn = "../input/gadm-data-for-uk/GBR_adm", layer = "GBR_adm0")
+#Kaggle
+shape <- shapefile("../input/gadm-data-for-uk/GBR_adm0.shp")
+```  
+
+Let's check the shape of the coastline for UK.
+
+```{r plot_map_pubs__local_authorities_leaflet1}
+plot(shape)
+```
+The shapefile data contains as well Northern Ireland,  our pub data is only covering England, Wales and Scotland.
+This will create an issue when we will use the coastline data to clip the Voronoi polygons.
+
+We convert the shapefile data in Spatial Polgons data. Then we intersect this data with 
+Voronoi polygons data calculated before.
+
+```{r map_pubs__local_authorities_leaflet2}
+uk.poly <- as(shape, "SpatialPolygons")
+vor.poly <- voronoiPolygons
+intersect  <- gIntersection(vor.poly, uk.poly, byid = T)
+```
+
+
+We recalculate the area for the plygons resulted from the intersection.
+
+```{r map_pubs__local_authorities_leaflet3}
+areas = list()
+pubs = list()
+for(polygonID in 1:length(intersect)) {
+  area <- lapply(slot(intersect[polygonID,1], "polygons"), function(x) lapply(slot(x,"Polygons"), function(y) slot(y, "area")))
+  areau <- data.frame(unlist(area))
+  names(areau)<-  c("area")
+  # we need to sum the areas with the same polygonID
+  areasum <- sum(areau$area)
+  areas[[polygonID]] <- areasum
+}
+
+area_df <- data.frame(unlist(areas))
+names(area_df) <- c("area")
+```
+
+
+We prepare to represent the polygons resulted from intersection of Voronoi polygons with the coastal lines for UK.
+A small error will appear on the Northern coast of Ireland, due to superposition of UK coastline for Northern Ireland
+with the Voronoi polygons of the W of England.
+
+```{r map_pubs__local_authorities_leaflet4}
+intersect$area <- area_df$area
+intersect$nr <- voronoiPolygons$nr
+intersect$density <- round(10* log(intersect$nr / intersect$area),0)
+intersect$local_authority <- voronoiPolygons$local_authority
+
+bins <- c(min(intersect$density), 30, 45, 60, 75, 90, 105, max(intersect$density))
+pal <- colorBin("Greens", domain = intersect$density, bins = bins)
+
+leaflet(data=intersect) %>%
+  # base map
+  addTiles() %>%
+  # Pubs - voronoi layer
+  addPolygons(data=intersect,
+              stroke=TRUE, fillColor=~pal(intersect$density), color="black",  weight=0.5,
+              fill=TRUE, fillOpacity = 0.6,
+              smoothFactor=0.5,
+              popup= paste("<strong>Local authority: </strong>", intersect$local_authority,
+                "<br><strong>Pubs: </strong>", intersect$nr,
+                "<br><strong>Pubs relative density: </strong>", intersect$density, " (log scale)"
+                ))
+```
+
+
+
+# **Feedback requested**
+
+Thank you for reading this Kernel. I would appreciate very much your comments and 
+suggestions. And, of course, if you like it, **upvote!**
+
+# **References**
+
+[1] Every Pub in England, https://www.kaggle.com/rtatman/every-pub-in-england  
+[2] Open Postcode geo, https://www.kaggle.com/danwinchester/open-postcode-geo  
+[3] Easting and Northing, and https://en.wikipedia.org/wiki/Easting_and_northing  
+[4] Universal Transverse Mercator (UTM) coordinate system, https://en.wikipedia.org/wiki/Universal_Transverse_Mercator_coordinate_system  
+[5] Postcode in the United Kingdom, https://en.wikipedia.org/wiki/Postcodes_in_the_United_Kingdom  
+[6] Voronoi diagram, https://en.wikipedia.org/wiki/Voronoi_diagram  
+[7] Voronoi diagrams from long/lat data, https://gis.stackexchange.com/questions/190917/r-voronoi-tesselation-from-long-lat-data  
+[8] Voronoi Diagram and Delaunay Triangulation in R, https://flowingdata.com/2016/04/12/voronoi-diagram-and-delaunay-triangulation-in-r/  
+[9] Calculate distance, bearing and more between Latitude/Longitude points, https://www.movable-type.co.uk/scripts/latlong.html  
+[10] How to Bound the Outer Area of Voronoi Polygons and Intersect with Map Data, https://stackoverflow.com/questions/36221822/how-to-bound-the-outer-area-of-voronoi-polygons-and-intersect-with-map-data  
+[11] gIntersection, Function for determining the intersection between the two given geometries, https://www.rdocumentation.org/packages/rgeos/versions/0.3-26/topics/gIntersection  
