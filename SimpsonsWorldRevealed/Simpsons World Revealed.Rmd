@@ -1,0 +1,772 @@
+---
+title: "Simpsons World Revealed"
+author: "Gabriel Preda"
+date: "Created: 2018-03-17; Last updated: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+#**Introduction**
+
+
+**The Simpsons** is an American animated sitcom depicting the life of the working class in US. Here we analyze
+the dataset [The Simpsons by the Data](https://www.kaggle.com/wcukierski/the-simpsons-by-the-data/), 
+provided by [William Cukierski](https://www.kaggle.com/wcukierski), containing information from  27 seasons of **The Simpsons did it** TV show.
+
+<img src="https://upload.wikimedia.org/wikipedia/en/0/0d/Simpsons_FamilyPicture.png" width=480/>
+
+
+
+#**Read the data**
+
+
+We include the R libraries used for data input, processing, analysis and visualization.
+
+```{r,message=FALSE,warning=FALSE}
+library(caret)
+library(corrplot)
+library(readr)
+library(knitr)
+library(kableExtra)
+library(formattable)
+library(dplyr)
+library(tm)
+library(tidyr)
+library(wordcloud)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(leaflet)
+library(randomForest)
+options(knitr.table.format = "html") 
+```
+
+We read the files in the dataset.
+
+```{r,input_data, message=FALSE,warning=FALSE}
+characters_df <- read_csv('../input/simpsons_characters.csv')
+episodes_df <- read_csv("../input/simpsons_episodes.csv")
+locations_df <- read_csv("../input/simpsons_locations.csv")
+script_lines_df <- read_csv("../input/simpsons_script_lines.csv")
+```
+
+#**Summary of the data**{.tabset .tabset-fade .tabset-pills}
+
+
+We have 4 data files in Simpsons dataset, as following:
+
+* simpsons_characters.csv (`r nrow(characters_df)` rows, `r length(names(characters_df))` columns)  
+* simpsons_episodes.csv (`r nrow(episodes_df)` rows, `r length(names(episodes_df))` columns)  
+* simpsons_locations.csv (`r nrow(locations_df)` rows, `r length(names(locations_df))` columns)  
+* simpsons_script_lines.csv (`r nrow(script_lines_df)` rows, `r length(names(script_lines_df))` columns)  
+
+
+Let's see the first few rows of each data file and also glimpse these data files.
+
+##Characters
+```{r glimpse_characters}
+knitr::kable(head(characters_df,10),caption="Characters information (first 10 rows)")
+glimpse(characters_df)
+```
+
+##Episodes
+```{r glimpse_episodes}
+knitr::kable(head(episodes_df,10),caption="Episodes information (first 10 rows)")
+glimpse(episodes_df)
+```
+
+##Locations
+```{r glimpse_locations}
+knitr::kable(head(locations_df,10),caption="Locations information (first 10 rows)")
+glimpse(locations_df)
+```
+
+##Script lines
+```{r glimpse_script_lines}
+knitr::kable(head(script_lines_df,10),caption="Script lines details (first 10 rows)")
+glimpse(script_lines_df)
+```
+
+
+
+#**Who are the characters**
+
+
+The information about the characters contains an id, a name, a normalized name (same as name, but with lowercase)
+and gender information. Gender information is incomplete, from the total `r nrow(characters_df)` data entries,
+a large part having the gender not specified.
+
+
+```{r fig.width=6, fig.height=4,character_gender}
+characters_df %>% group_by(gender) %>% summarise(nr = length(name)) %>% ungroup() %>%
+  ggplot(aes(x=gender, y=nr)) + geom_bar(stat="identity", aes(fill=gender), colour="black") +
+  geom_text(aes(label=nr), vjust=-0.2, position=position_dodge(width=0.6)) +
+  scale_fill_manual(values=c("red", "lightblue", "grey")) +
+  theme_bw() + labs(x="Gender", y="Number of characters", fill="Gender",
+    title="Simpsons characters gender", subtitle="Data file: simpsons_characters.csv")
+```
+
+Only 70 characters have the gender **f** (female), 243 have the gender **m** (male), the rest of 5864 not being
+specified in the data file.
+
+
+Let's show all characters with assigned gender using a wordcloud. Female characters will be shown with <font color="red">red</font>,
+male characters will be shown with <font color="blue">blue</font>.
+
+```{r fig.width=10, fig.height=9,characters_gender_wordcloud}
+characters_df %>% filter(gender != "") %>% select(name, gender) -> words
+words$freq = 1
+par(mfrow=c(1, 1),bg="grey97")
+wordcloud(words = words$name, freq = words$freq, max.words=313, random.order=F, rot.per=0, scale=c(0.8,0.8),
+                    ordered.colors=T, colors=brewer.pal(3, "Set1")[factor(words$gender)])
+title(paste0('Characters with gender:',nrow(words),'\n(red for female, blue for male)'),col.main='black',cex.main=1.2)
+```
+
+
+
+Let's see who are the most important characters in the show, counting the number of appearances in the shows. We will 
+count the number of times the character apears as speaker in the script lines.
+
+
+```{r fig.width=8, fig.height=4,character_who_speaks_most}
+
+script_lines_character_df <- merge(script_lines_df, characters_df,  by.x = "character_id",  by.y = "id")
+script_lines_character_df %>% filter(name != "") %>% group_by(name) %>%  
+  summarise(nr = length(id)) %>% top_n(10,nr) %>% ungroup() %>%
+  ggplot(aes(x=reorder(name,nr), y=nr)) + geom_bar(stat="identity", aes(fill=reorder(name,nr)), colour="black") +
+  geom_text(aes(label=nr), position=position_dodge(width=0.6)) + coord_flip() + guides(fill=FALSE) +
+  scale_fill_manual(values=c(rep("lightgreen",6), rep("magenta",3), "grey")) +
+  theme_bw(base_size = 10) + labs(x="Character", y="Number of lines",
+    title="Simpsons characters importance", subtitle="Which character speaks most (character lines)")
+```
+
+Character importance based on who speaks more shows as 4 most important characters `Homer Simpson`, `Marge Simpson`, 
+`Bart Simpson` and `Lisa Simpson`.
+
+Let's show again the main characters in the show (top 200 this time) using a wordcloud.
+
+
+```{r fig.width=10, fig.height=8,characters_list}
+script_lines_character_df %>% filter(name != "") %>%  group_by(name) %>%  
+  summarise(nr = length(id)) %>% top_n(200,nr) %>% ungroup() -> words
+par(mfrow=c(1, 1),bg="grey97")
+wordcloud(words=words$name,freq=words$nr,scale=c(3,0.8),random.order=F,colors=brewer.pal(8,"Dark2"),rot.per=0,max.words=200)
+title(paste0('Main characters in show - top 200'),col.main='black',cex.main=1.2)
+```
+
+Let's see how the four main characters (Homer, Marge, Bart and Lisa) frequence of apparition evolved during the entire period 
+when the show was aired. The frequence of aparition is based on lines in the script, not on number of scenes. A scene is
+defined by a continous set with the same location; during the scene, a character can have multiple lines, interwined with
+other characters lines, during a conversation at that location. Then, we show as well the number of words (aggregated per
+episode and per season) for a certain character.
+
+We start with the frequence of apparition plotted vs. episode. We plot the number of lines and the number of words vs. 
+episode.
+
+```{r fig.width=10, fig.height=7,character_who_appears_most,warning=FALSE}
+main_characters <- c("Homer Simpson", "Marge Simpson", "Bart Simpson", "Lisa Simpson")
+script_lines_character_df$word_count = as.numeric(script_lines_character_df$word_count)
+script_lines_character_df %>% filter(name %in% main_characters) %>% group_by(name,episode_id) %>%  
+  summarise(nr = length(id)) %>% ungroup() %>%
+ggplot(aes(x = episode_id, y = nr, colour = name)) +  
+  geom_line() + theme_bw() + theme(legend.position="right") +
+  labs(x="Episode", y="Lines", colour="Character", 
+       title="Character lines (per episode)", subtitle="Four main characters") -> d1
+script_lines_character_df[complete.cases(script_lines_character_df$word_count),] %>% filter(name %in% main_characters) %>% group_by(name,episode_id) %>%  
+  summarise(nr = sum(word_count)) %>% ungroup() %>%
+ggplot(aes(x = episode_id, y = nr, colour = name)) +  
+  geom_line() + theme_bw() + theme(legend.position="right") +
+  labs(x="Episode", y="Words", colour="Character", 
+       title="Character words (per episode)", subtitle="Four main characters") -> d2
+grid.arrange(d1,d2,ncol=1)
+```
+
+
+Let's see now the frequence of apparition plotted vs. season. We plot the number of lines and the number of words vs. 
+season for top 10 characters.
+
+```{r fig.width=10, fig.height=7,character_who_appears_most_season,warning=FALSE}
+script_lines_character_df %>% filter(name != "") %>% group_by(name) %>%  
+  summarise(nr = length(id)) %>% top_n(10,nr) -> top10char
+
+script_lines_ch_ep_df <- merge(script_lines_character_df, episodes_df,  by.x = "episode_id",  by.y = "id")
+
+script_lines_ch_ep_df %>% filter(name %in% top10char$name) %>% group_by(name,season) %>%  
+  summarise(nr = length(id)) %>% ungroup() %>%
+ggplot(aes(x = season, y = nr, colour = name)) +  
+  geom_line() + geom_point() + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="Lines", colour="Character", 
+       title="Character lines (per season)", subtitle="10 main characters") -> d1
+
+script_lines_ch_ep_df[complete.cases(script_lines_ch_ep_df), ] %>% filter(name %in% top10char$name) %>% group_by(name,season) %>%  
+  summarise(nr = sum(word_count)) %>% ungroup() %>%
+ggplot(aes(x = season, y = nr, colour = name)) +  
+  geom_line() + geom_point() + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="Words", colour="Character", 
+       title="Character words (per season)", subtitle="10 main characters") -> d2       
+grid.arrange(d1,d2,ncol=1)    
+```
+
+From the other characters than the 4 main characters, `C. Montgomery Burns` had the most important contributions,
+with 4 times above and close of 250 lines per season. `Bart Simpson` starts on second place in the first 8 seasons, 
+being replaced on the second place by `Marge Simpson` for most of the rest of the seasons. `Homer Simpson` is on the
+first place for all seasons, with more than double number of lines than the next one character for most of the
+seasons.
+
+
+Let's see now what is actually the distribution of number of lines and number of words spoken by all the characters,
+grouped by season.
+
+```{r fig.width=10, fig.height=7,character_who_appears_season_boxplot,warning=FALSE}
+
+script_lines_ch_ep_df  %>% group_by(name,season) %>%  
+  summarise(nr = length(id)) %>% ungroup() %>%
+ggplot(aes(x = reorder(season,season), y = nr, colour = season)) +  guides(colour=FALSE) +
+  geom_boxplot() + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="Lines", colour="Season", 
+       title="Character lines (per season)", subtitle="All characters distribution") -> d1
+
+script_lines_ch_ep_df[complete.cases(script_lines_ch_ep_df), ] %>% group_by(name,season) %>%  
+  summarise(nr = sum(word_count)) %>% ungroup() %>%
+ggplot(aes(x = reorder(season,season), y = nr, colour = season)) +  guides(colour=FALSE) +
+  geom_boxplot() + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="Words", colour="Season", 
+       title="Character words (per season)", subtitle="All characters distribution") -> d2       
+grid.arrange(d1,d2,ncol=1)    
+```
+
+We confirm  what we already observed from previous graphs, that the average values for number of 
+lines and words / season are very small; the 4 main characters appears as outliers for all the
+seasons.
+
+But what are the Simpson saying to each other ?
+
+#**Who tells what to whom ?**
+
+We will check what the Simpsons are saying to each other. We will performa a word analysis on the lines for
+the 4 most important characters.
+
+We start first with 1-gram analysis: what are the words most used by each of the main characters. We remove for each character
+its own name.
+
+## To whom speaks the main characters
+
+```{r character_who_speaks_what_word,warning=FALSE}
+main_characters <- c("Homer Simpson", "Marge Simpson", "Bart Simpson", "Lisa Simpson")
+
+script_lines_ch_ep_df %>% filter(name %in% main_characters) %>%  select(name,normalized_text) %>% ungroup() -> textAll
+  
+prepareShowWordCloud1Gram <- function(textAll,charName,remWords) {
+    textAll %>% filter(name == charName) %>% ungroup() -> text
+    myCorpus <- VCorpus(VectorSource(text))
+    myCorpus = tm_map(myCorpus, content_transformer(tolower))
+    myCorpus = tm_map(myCorpus, removePunctuation)
+    myCorpus = tm_map(myCorpus, removeNumbers)
+    myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"),stopwords('SMART'),remWords))
+
+    BigramTokenizer <- function(x) unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+    myTdm1Gram<- TermDocumentMatrix(myCorpus, control = list(minWordLength = 1))
+    mTdm1Gram <-as.matrix(myTdm1Gram)
+    wordFreq1Gram<-sort(rowSums(mTdm1Gram), decreasing=T)
+
+    wordcloud(words=names(wordFreq1Gram),freq=wordFreq1Gram,random.order=F,
+              colors=brewer.pal(9,"Set1"),max.words=20)
+    title(paste0('Most frequent words used by\n',charName),col.main='black',cex.main=1.2)
+    rm(myCorpus,myTdm1Gram)
+    #gc()
+}
+```
+
+```{r fig.width=10, fig.height=8,character_who_speaks_what_word1,warning=FALSE}
+par(mfrow=c(2, 2),bg="grey97")
+prepareShowWordCloud1Gram(textAll,main_characters[1],c("homer", "simpson"))
+prepareShowWordCloud1Gram(textAll,main_characters[2],c("marge", "simpson"))
+prepareShowWordCloud1Gram(textAll,main_characters[3],c("bart", "simpson"))
+prepareShowWordCloud1Gram(textAll,main_characters[4],c("lisa", "simpson"))
+```
+
+For Homer, the most used word is `Marge` so we can conclude that she is his main interlocutor. Its favorite words are, other than
+his wife name, `dont`, `youre`, `hey`, `I'll`, `yeah`, `gonna`.  
+For Marge, the most important interlocutor is `Homer`, her husband. Follows `dont`, `Bart` (her son), `homie`, `youre`. `Lisa` (her daughter)  comes on the same level with `good  and 'kids`.  
+For Bart, the most frequent interlocutor is Homer (since the most used word is `dad`). Other frequent expressions are `dont`, `hey`, `mom`, 
+`youre`, `man`, `gonna`, `yeah`.  
+For Lisa, `dad` is the most important interlocutor, followed by `Bart` and `mom`.
+
+## What are the favorite expressions (2-gram)
+
+Let's follow now with a 2-gram analysis, what are the 2-words expressions mostly used by the 4 main characters. We remove the names
+of the main characters.
+
+```{r character_who_speaks_what,warning=FALSE}
+main_characters <- c("Homer Simpson", "Marge Simpson", "Bart Simpson", "Lisa Simpson")
+
+script_lines_ch_ep_df %>% filter(name %in% main_characters) %>%  select(name,normalized_text) %>% ungroup() -> textAll
+  
+prepareShowWordCloud2Gram <- function(textAll,charName) {
+    textAll %>% filter(name == charName) %>% ungroup() -> text
+    myCorpus <- VCorpus(VectorSource(text))
+    myCorpus = tm_map(myCorpus, content_transformer(tolower))
+    myCorpus = tm_map(myCorpus, removePunctuation)
+    myCorpus = tm_map(myCorpus, removeNumbers)
+    myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"),stopwords('SMART'),c("homer", "simpson", "marge", "lisa", "bart")))
+
+    BigramTokenizer <- function(x) unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+    myTdm2Gram<- TermDocumentMatrix(myCorpus, control = list(tokenize = BigramTokenizer))
+    mTdm2Gram <-as.matrix(myTdm2Gram)
+    wordFreq2Gram<-sort(rowSums(mTdm2Gram), decreasing=T)
+
+    wordcloud(words=names(wordFreq2Gram),freq=wordFreq2Gram,random.order=F,
+              colors=brewer.pal(9,"Set1"),max.words=20)
+    title(paste0('Most frequent 2-Grams used by\n',charName),col.main='black',cex.main=1.2)
+    rm(myCorpus,myTdm2Gram)
+    #gc()
+}
+```
+
+```{r fig.width=10, fig.height=10,character_who_speaks_what1,warning=FALSE}
+par(mfrow=c(2, 2),bg="grey97")
+prepareShowWordCloud2Gram(textAll,main_characters[1])
+prepareShowWordCloud2Gram(textAll,main_characters[2])
+prepareShowWordCloud2Gram(textAll,main_characters[3])
+prepareShowWordCloud2Gram(textAll,main_characters[4])
+```
+
+Homer dearest expressions are `im gonna`, `woo hoo`, `wait minute`, `mr burns`, `na na`, `dont worry`, `heh heh`, `ow ow`.  
+Marge favorite expressions are `na na`, `mr burns`, `dont worry`, `im gonna`, `whats wrong`, `homie im`.  
+Bart favorite expressions are `im gonna`, `hey dad`, `na na`, `mom dad`, `hey lis`, `ay carumba`, `dont worry`.  
+As for Lisa, she is using mostly `mam dad`, `im gonna`, `na na`, `na dad`, `dad im`, `dad dont`, `dad dad`. Special 
+expressions in the top 20 are `principal skinner` and `sideshow bob`.  
+
+
+## What are the favorite expressions (3-gram)
+
+Let's follow now with a 3-gram analysis, what are the 3-words expressions mostly used by the 4 main characters. We remove the names
+of the main characters.
+
+```{r character_who_speaks_what3,warning=FALSE}
+main_characters <- c("Homer Simpson", "Marge Simpson", "Bart Simpson", "Lisa Simpson")
+
+script_lines_ch_ep_df %>% filter(name %in% main_characters) %>%  select(name,normalized_text) %>% ungroup() -> textAll
+  
+prepareShowWordCloud3Gram <- function(textAll,charName) {
+    textAll %>% filter(name == charName) %>% ungroup() -> text
+    myCorpus <- VCorpus(VectorSource(text))
+    myCorpus = tm_map(myCorpus, content_transformer(tolower))
+    myCorpus = tm_map(myCorpus, removePunctuation)
+    myCorpus = tm_map(myCorpus, removeNumbers)
+    myCorpus = tm_map(myCorpus, removeWords,c(stopwords("english"),stopwords('SMART'),c("homer", "simpson", "marge", "lisa", "bart")))
+
+    TrigramTokenizer <- function(x) unlist(lapply(ngrams(words(x), 3), paste, collapse = " "), use.names = FALSE)
+    myTdm3Gram<- TermDocumentMatrix(myCorpus, control = list(tokenize = TrigramTokenizer))
+    mTdm3Gram <-as.matrix(myTdm3Gram)
+    wordFreq3Gram<-sort(rowSums(mTdm3Gram), decreasing=T)
+
+    wordcloud(words=names(wordFreq3Gram),freq=wordFreq3Gram,random.order=F,
+              colors=brewer.pal(9,"Set1"),max.words=20)
+    title(paste0('Most frequent 3-Grams used by\n',charName),col.main='black',cex.main=1.2)
+    rm(myCorpus,myTdm3Gram)
+    #gc()
+}
+```
+
+```{r fig.width=10, fig.height=10,character_who_speaks_what4,warning=FALSE}
+par(mfrow=c(2, 2),bg="grey97")
+prepareShowWordCloud3Gram(textAll,main_characters[1])
+prepareShowWordCloud3Gram(textAll,main_characters[2])
+prepareShowWordCloud3Gram(textAll,main_characters[3])
+prepareShowWordCloud3Gram(textAll,main_characters[4])
+```
+
+From the 3-words expressions analysis we discover a lot of interjections (with repetitions) constitutes the majority of the
+uterances for the 4 main characters. Homer's favorite are `na na na`, `heh heh heh`, `ow ow ow `, `la la la`, 
+`blah blah blah`. Marge loves to repeat `bla bla bla`, `na na na`, `woink woink woink`, Bart's favorite interjections are
+`da da da`, `ow ow ow`, `ha ha ha`, `na na na` and Lisa's most frequent interjections are   `lu lu lu`, `quit quit quit`,
+`ha ha ha` and `na na na`. But Marge's actually most frequent 3-grams are `I'am glad you're` and some of the most frequent
+expressions (not repetitive interjections) are `don't good idea`, `I'm proud Homie`, `Don't worry honey`. Homer and Bart
+share a quite interesting non-repetitive interjection expression: `I'm gonna make` whilst Homer and Marge are actually sharing
+as favorite frequent expression `Don't worry honey`. 
+
+```{r run_gc,message=FALSE,warning=FALSE}
+gc()
+```
+
+
+
+#**Locations**
+
+
+There are multiple representations of Springfield, the city of Simpsons. One very nice can be found [here](http://i.imgur.com/ShejE8A.jpg).
+You can also click on the map below to see an enlarged version.
+
+<a href="http://i.imgur.com/ShejE8A.jpg">
+<img src="http://i.imgur.com/ShejE8A.jpg" alt="Springfield city map" width=960 caption="Springfield, where the Simpsons live"></img>
+</a>
+
+
+
+Let's check what are the most important locations in the TV show. We will focus on the top 20 locations (counting the
+number of lines delivered at that location).
+
+```{r locations_main,warning=FALSE}
+
+script_lines_df %>% group_by(location_id) %>% summarize(nr = length(id)) %>% top_n(20,nr) %>%
+    select(location_id,nr) %>% ungroup() -> location_freq
+locations <- merge(locations_df, location_freq, by.x="id", by.y="location_id")
+
+locations %>%
+  ggplot(aes(x=reorder(name,nr), y=nr)) + geom_bar(stat="identity", fill="gold", colour="black") +
+  geom_text(aes(label=nr),  position=position_dodge(width=0.6),size=3) + coord_flip() +
+  theme_bw(base_size = 12) + labs(x="Location", y="Frequence",
+    title="Simpsons locations", subtitle="How many lines are spoken at the location")
+
+  
+```
+
+The most important location is `Simpson Home`, followed by `Springfield Elementary School`, `Moe's Tavern`,
+`Springfield Nuclear Power Plant`, `Kwik-E Mart` and `First Church of Springfield`.
+
+Now we can identify relatively easily some on the main landmarks of the TV series on the map (see above): 
+`Springfield Nuclear Power Plant` on the river bank near the Springfield bridge, `Springfield Elementary School`, 
+`Kwick-E-Mart` (exactly 6 blocks East from Town Hall and one block North from Main Street).
+
+
+## Locations and characters
+
+Let's see now how the first 20 locations are evolving over seasons and also where the 4 main characters are 
+delivering most of their lines.
+
+
+```{r fig.width=10, fig.height=4,locations_characters_main,warning=FALSE}
+main_characters <- c("Homer Simpson", "Marge Simpson", "Bart Simpson", "Lisa Simpson")
+main_locations <- location_freq$location_id
+
+script_lines_character_df$word_count = as.numeric(script_lines_character_df$word_count)
+
+script_lines_character_df %>% filter(location_id %in% main_locations) %>% filter(name %in% main_characters) %>%
+  group_by(location_id,name) %>% summarize(nr = length(id)) %>% top_n(4,nr) %>%
+    select(location_id,name, nr) %>% ungroup() -> location_character_freq
+names(location_character_freq) <- c("location_id","char_name","nr")
+
+locations <- merge(locations_df, location_character_freq, by.x = "id", by.y = "location_id")
+
+locations  %>%
+ggplot(aes(x = reorder(name,nr), y = nr, fill = char_name)) +  
+  geom_bar(aes(fill=char_name), stat="identity", colour="black") + coord_flip() + theme_bw() +
+  theme(legend.position="right") + labs(x="Episode", y="Lines", fill="Character", 
+       title="Character lines (per location)", subtitle="Four main characters")
+```
+
+Homer, as expected, is running the show at `Simpson Home`, `Moe's Tavern`, `Springfield Nuclear Power Plant`, `Simpson Car`, 
+`Simpson Living Room` and even in `Simpson Kitchen`. Bart is on the first place at `Springfield Elementary School`, `Bart's Bedroom` and 
+`Bart's Treehause`. Lisa is on second place at `Springfield Elementary School`, after Bart. 
+
+
+## Locations and seasons
+
+Let's represent the most important locations for each season. We will show the number of lines
+delivered per locations against episodes. Only locations where appears the 4 main characters are considered.
+
+```{r fig.width=10, fig.height=6,location_seasons_lineplot}
+
+ location_episode <- merge(script_lines_df, episodes_df, by.x="episode_id", by.y="id")
+ 
+location_episode %>% filter(location_id %in% main_locations) %>% group_by(season,location_id) %>% 
+  summarise(nr = length(id)) %>% ungroup() -> location_season
+
+location_name_season <- merge(location_season,locations_df, by.x="location_id", by.y="id")
+
+
+location_name_season[complete.cases(location_name_season), ] %>% 
+ggplot(aes(x = season, y = nr, colour = name)) +  
+  geom_line()  + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="Lines", colour="Location", 
+       title="Lines (per season, for each location)", subtitle="20 main locations, 27 seasons")      
+
+```
+
+
+## Top locations wordcloud
+
+Let's represent the top 200 locations as a wordcloud.
+
+```{r fig.width=10, fig.height=6,locations_main_wordcloud,warning=FALSE}
+
+script_lines_df %>% group_by(location_id) %>% summarize(nr = length(id)) %>% top_n(200,nr) %>%
+    select(location_id,nr) %>% ungroup() -> location_freq
+locations200 <- merge(locations_df, location_freq, by.x="id", by.y="location_id")
+
+par(mfrow=c(1, 1),bg="grey97")
+wordcloud(words=locations200$name,freq=locations200$nr,scale=c(4,0.5),random.order=F,
+                    colors=brewer.pal(8,"Dark2"),rot.per=0,max.words=200)
+title(paste0('Most frequent locations - top 200'),col.main='black',cex.main=1.2)
+```
+
+#**Seasons, episodes, IMDB rating, viewers ?**
+
+The show aired for a number of `r max(episodes_df$season)` seasons. A total of `r nrow(episodes_df)` episodes were produced and aired.
+
+## Episodes titles
+
+Let's see the titles of the episodes as a wordcloud. We will  use  different colours for each season.
+As a regular pallete will be limited to 11 collors, we use **colorRampPalette**, function that can
+extend the pallete to a choosen number of colors, larger than 11, here the number of seasons.
+
+```{r fig.width=12, fig.height=12,episodes_titles_wordcloud}
+episodes_df %>% filter(title != "") %>% select(title, season) -> titles
+titles$freq = 1
+par(mfrow=c(1, 1),bg="grey97")
+extColors = colorRampPalette(brewer.pal(11,"Spectral"))(28)
+wordcloud(words = titles$title, freq = titles$freq, max.words=600, random.order=F, rot.per=0, scale=c(0.6,0.6),
+                    ordered.colors=T, colors=extColors[factor(titles$season)])
+title(paste0('Titles of the episodes'),col.main='black',cex.main=1.2)
+```
+
+Let's represent the top 20 longest episodes names.
+
+
+```{r fig.width=8, fig.height=5,episodes_titles_names_top_20}
+episodes_df %>% filter (title != "") %>% top_n(20,nchar(title)) %>% 
+select (title, image_url, video_url) %>% ungroup() -> episodes_top20
+ggplot(episodes_top20, aes(x = reorder(title,nchar(title)), y = nchar(title))) +  
+ geom_bar(stat="identity", fill="lightblue", colour="black") + coord_flip() + theme_bw() +
+  labs(x="Title", y="Title length", title="Longest episode title (top 20)")  
+```
+
+We can also present them in a table with the links to the episodes videos and images url.
+```{r fig.width=8, fig.height=6,episodes_titles_names_top_20_table}
+knitr::kable(episodes_top20,caption="Top 20 episodes with longest titles")
+```
+
+Let's represent the also bottom 20 shortest episodes names.
+
+
+```{r fig.width=8, fig.height=5,episodes_titles_names_bottom_20}
+episodes_df %>% filter (title != "") %>% top_n(-20,nchar(title)) %>% 
+select (title, image_url, video_url) %>% ungroup() -> episodes_bottom20
+ggplot(episodes_bottom20, aes(x = reorder(title,nchar(title)), y = nchar(title))) +  
+ geom_bar(stat="identity", fill="lightgreen", colour="black") + coord_flip() + theme_bw() +
+  labs(x="Title", y="Title length", title="Shortest episode title (bottom 20)")  
+```
+
+
+We can also present them in a table with the links to the episodes videos and images url.
+
+```{r fig.width=8, fig.height=6,episodes_titles_names_bottom_20_table}
+knitr::kable(episodes_bottom20,caption="Bottom 20 episodes with shortest titles")
+```
+
+## IMDB ratings
+
+Here we represent the IMDB ratings (per episodes and averaged by seasons).
+
+```{r imdb_rating}
+episodes_df[complete.cases(episodes_df), ] %>% 
+ggplot(aes(x = id, y = imdb_rating)) +  
+  geom_line(col="lightgreen") + theme_bw() + theme(legend.position="right") +
+  labs(x="Episode", y="IMDB rating",  
+       title="IMDB rating (per episode)") ->d1
+episodes_df[complete.cases(episodes_df), ] %>% group_by(season) %>% summarize(nr = mean(imdb_rating)) %>% ungroup() %>%
+ggplot(aes(x = season, y = nr)) +  
+  geom_line(col="lightblue") + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="IMDB rating (averaged values per season)",  
+       title="IMDB rating (per season)") -> d2
+grid.arrange(d1, d2, ncol=2)
+```
+
+Let's represent as well the boxplot graphs for IMDB ratings/episod, grouped by season.
+
+```{r imdb_ratings_box}
+episodes_df[complete.cases(episodes_df), ] %>% 
+ggplot(aes(x = reorder(season,season), y = imdb_rating, fill=season)) +  guides(fill=FALSE) +
+  geom_boxplot() + theme_bw() +  scale_fill_gradient(low = "lightgreen", high = "lightblue")+
+  labs(x="Season", y="IMDB rating", fill="Season",
+       title="IMDB rating (per episode)", subtitle="Grouped by season")
+```  
+
+## IMDB votes
+
+DB rating was above 7.5 for the first 10 seasons and droped almost constantly to reach, in the last season less than 6.5.
+
+Let's represent also the IMDB votes (per episodes and aggregated per seasons).
+```{r imdb_votes}
+episodes_df[complete.cases(episodes_df), ] %>% 
+ggplot(aes(x = id, y = imdb_votes)) +  
+  geom_line(col="lightgreen") + theme_bw() + theme(legend.position="right") +
+  labs(x="Episode", y="IMDB votes",  
+       title="IMDB votes (per episode)") ->d1
+episodes_df[complete.cases(episodes_df), ] %>% group_by(season) %>% summarize(nr = sum(imdb_votes)) %>% ungroup() %>%
+ggplot(aes(x = season, y = nr)) +  
+  geom_line(col="lightblue") + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="IMDB votes (total values per season)",  
+       title="IMDB votes (per season)") -> d2
+grid.arrange(d1, d2, ncol=2)
+```  
+
+
+Let's represent as well the boxplot graphs for IMDB votes/episod, grouped by season.
+
+```{r imdb_votes_box}
+episodes_df[complete.cases(episodes_df), ] %>% 
+ggplot(aes(x = reorder(season,season), y = imdb_votes, fill=season)) +  guides(fill=FALSE) +
+  geom_boxplot() + theme_bw() +  scale_fill_gradient(low = "lightgreen", high = "lightblue")+
+  labs(x="Season", y="IMDB votes",  fill="Season",
+       title="IMDB votes (per episode)", subtitle="Grouped by season")
+``` 
+
+
+Number of IMDB votes droped to less than few hundreds per episode in the last seasons.
+
+
+## US viewers
+
+Let's represent the US viewers (millions) per episode and per season.
+
+```{r air_show_viewers}
+episodes_df[complete.cases(episodes_df), ] %>% 
+ggplot(aes(x = id, y = us_viewers_in_millions)) +  
+  geom_line(col="lightgreen") + theme_bw() + theme(legend.position="right") +
+  labs(x="Episode", y="US viewers (millions)",  
+       title="US viewers (millions, per episode)") ->d1
+episodes_df[complete.cases(episodes_df), ] %>% group_by(season) %>% summarize(nr = sum(us_viewers_in_millions)) %>% ungroup() %>%
+ggplot(aes(x = season, y = nr)) +  
+  geom_line(col="lightblue") + theme_bw() + theme(legend.position="right") +
+  labs(x="Season", y="US viewers (millions, total values per season)",  
+       title="US viewers (millions, per season)") -> d2
+grid.arrange(d1, d2, ncol=2)
+```
+
+Let's represent as well the boxplot graphs for US viewers/episod, grouped by season.
+
+```{r imdb_viewers_box}
+episodes_df[complete.cases(episodes_df), ] %>% 
+ggplot(aes(x = reorder(season,season), y = us_viewers_in_millions, fill=season)) +  guides(fill=FALSE) +
+  geom_boxplot() + theme_bw() +  scale_fill_gradient(low = "lightgreen", high = "lightblue")+
+  labs(x="Season", y="US viewers (millions)",  fill="Season",
+       title="US viewers (millions, per episode)", subtitle="Grouped by season")
+``` 
+
+
+The show was canceled when the number of viewers started to drop and reached less than 5 million US viewers per episode.
+
+
+## Correlations
+
+Let's check how some of the data on IMDB ratings, IMDB votes, US viewers and other dimmensions are correlated.
+We will calculate the Pearson correlation.
+
+```{r correlation}
+
+episodes_df[complete.cases(episodes_df), ] %>% select(id, season, imdb_rating, imdb_votes, us_viewers_in_millions, views) -> ep_data
+
+correlations <- cor(ep_data,method="pearson")
+corrplot.mixed(correlations, number.cex = .9, tl.cex=0.7, tl.col = "black")
+```
+
+Number of IMDB votes, US viewers in millions are highly inverse correlated with the number of episodes and the season (ratings 
+and votes numbers are decreasing in time). IMDB votes are, as expected, correlated with US viewers in millions. 
+IThere is also a lower correlations between IMDB votes and IMDB ratings and between IMDB ratings and US viewers in millions. 
+Also, there is smaller inverse correlation between IMDB ratings and episodes number and season.
+
+## Predict the IMDB ratings
+
+Let's try to predict the IMDB ratings based on historical information and other information available (number of US viewers, 
+IMDB votes, season, episode id). We will separate the train and test set based on episode ID, the first 80% of episodes will
+be in train dataset and the rest in the test dataset. We will use RandomForest for the predictive model.
+
+```{r predict_us_viewers, warnings=FALSE}
+# we arrange first the ids (they are not orderd in the data) so that
+# when we separate the train and test data we will 
+ep_data %>% arrange(id) -> ep_data
+
+ntot = nrow(ep_data)
+ntrain = as.integer(ntot * 0.8)
+indexT = 1:ntrain
+
+trainset = ep_data[1:ntrain,]
+testset =   ep_data[(ntrain+1):ntot,]
+
+n <- names(trainset)
+rf.form <- as.formula(paste("imdb_rating ~", paste(n[!n %in% "imdb_rating"], collapse = " + ")))
+
+trainset.rf <- randomForest(rf.form,trainset,ntree=100,importance=T)
+
+testset$predicted <- predict(trainset.rf ,testset)
+```
+
+Let's check the variable importance.
+
+```{r fig.width=8, fig.height=3,variable_importance}
+varimp <- data.frame(trainset.rf$importance)
+
+  vi1 <- ggplot(varimp, aes(x=reorder(rownames(varimp),IncNodePurity), y=IncNodePurity)) +
+  geom_bar(stat="identity", fill="tomato", colour="black") +
+  coord_flip() + theme_bw(base_size = 8) +
+  labs(title="Prediction using RandomForest with 100 trees", subtitle="Variable importance (IncNodePurity)", x="Variable", y="Variable importance (IncNodePurity)")
+  
+  vi2 <- ggplot(varimp, aes(x=reorder(rownames(varimp),X.IncMSE), y=X.IncMSE)) +
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+  coord_flip() + theme_bw(base_size = 8) +
+  labs(title="Prediction using RandomForest with 100 trees", subtitle="Variable importance (%IncMSE)", x="Variable", y="Variable importance (%IncMSE)")
+
+grid.arrange(vi1, vi2, ncol=2)
+```
+
+
+The most important variable is the number of IMDB votes, followed by the other variables, in different order depending on the method
+of calculation of variable importance. For the MSE-based method, episode `id` and `us_viewers_in_millions` are on 2nd and 3rd place.
+
+
+```{r fig.width=8, fig.height=4,air_show_imdb_rating_predicted}
+
+show_data <- ep_data[ep_data$id>ntrain,c("id","imdb_rating")]
+show_data <- cbind(show_data,"Original values")
+t <- testset[,c("id","predicted")]
+t <- cbind(t, "Predicted values")
+
+names(show_data) <- c("id","imdb_rating","set")
+names(t) <- c("id","imdb_rating","set")
+show_data <- rbind(show_data,t)
+
+
+show_data %>% 
+ggplot(aes(x = id, y = imdb_rating, color=set)) +  
+  geom_line(aes(x=id,color=set)) + geom_point() + theme_bw() + theme(legend.position="right") +
+  labs(x="Episode", y="IMDB rating",  color="Set",
+       title="IMDB rating", subtitle="Original vs. predicted values (using Random Forest)")
+
+```
+
+The model could capture with realtive accuracy the trend (average) of IMDB rating and only with reduced accuracy some of the peaks.
+We will further investigate if along the time interval the IMDB votes and IMDB rating could be a good predictor for the number
+of US viewers. <font color="blue"><b>Stay tunned</b></font>!
+
+
+
+#**Conclusions**
+
+The TV show is dominated by the 4 main characters, Homer, Marge, Bart and Lisa Simpsons. The main locations of the show are Simpsons Home 
+(with a large margin) and Springfield Elementary School (where Bart and Lisa are learning), Moe's Tavern (where Homer enjoys his free time),
+Springfield Nuclear Power Plant (where Homer is working), Kwik-E Mart (a convenient store) and First Church of Springfield. The main characters
+are also speaking mostly between them. Most of the frequent expressions are idiomatic, the main characters using also a lot of onomatopoeia.
+There appears to be a close correlation between IMDB votes and US viewers in millions. IMDB ratings are also correlated with IMDB votes.
+We were able to predict with relative good accuracy the average of IMDB rating based on other features.
+
+#**Feedback**
+
+Please give me your feedback for improvement of this Kernel.  And, of course, if you like it,
+please <font color="red">press the magic button</font>!
+
+
+#**References**
+
+[1] The Simpsons, https://en.wikipedia.org/wiki/The_Simpsons  
+[2] Springfield, Where the Simpsons live, https://en.wikipedia.org/wiki/Springfield_(The_Simpsons)  
+[3] William Cukierski, The Simpsons by the Data, https://www.kaggle.com/wcukierski/the-simpsons-by-the-data/  
+[4] Extend A Color Palette To A Color Ramp, collorRampPallete, https://www.rdocumentation.org/packages/dichromat/versions/1.1/topics/colorRampPalette
