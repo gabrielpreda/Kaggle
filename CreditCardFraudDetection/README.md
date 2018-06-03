@@ -1,3 +1,4 @@
 Kaggle Kernels for the dataset Credit Card Fraud Detection using: 
-* credit_card_fraud_detection_using_RF.R - uses RandomForest and obtains an AUC of 0.93
-* credit_card_fraud_detection_using_xgboost.Rmd - uses XGBoost and obtains an AUC of 0.96
+* credit_card_fraud_detection_using_RF.R - R script - uses RandomForest and obtains an AUC of 0.93
+* credit_card_fraud_detection_using_xgboost.Rmd - R Markdown notebook - uses XGBoost and obtains an AUC of 0.96
+* Credit_Card_Fraud_Detection_Predictive_Models.ipynb - Jupyter Python Notebook - uses lightGBG and obtains an AUC of 0.981
