@@ -1,0 +1,1 @@
+Kaggle Kernel for the competiotion https://www.kaggle.com/stackoverflow/stack-overflow-2018-developer-survey
