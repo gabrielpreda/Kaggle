@@ -59,9 +59,7 @@ sdf %>% filter(City == "London" & Country == "GB") -> sd
 sd[sd$Latitude < 51.85,] -> sd
 ```
 
-We also keep only the pubs in the municipalities belonging to London or London boroughs. We extracted the
-municipalities list from Reference [1] (London boroughs) are we are using here to filter by local 
-authority. The local authorities for pubs in London are actually the London boroughs.
+We also keep only the pubs in the municipalities belonging to London or London boroughs. We extracted the municipalities list from Reference [1] (London boroughs) are we are using here to filter by local  authority. The local authorities for pubs in London are actually the London boroughs.
 
 ```{r filter_pubs}
 # Pubs in UK/London
@@ -90,19 +88,12 @@ sprintf("Starbucks in London: %d. Pubs in London: %d", nrow(sd), nrow(pdl))
 ```
 
 There are considerable more pubs than Starbucks. Therefore, we will create Voronoi polygons for the Starbucks. 
-We use Voronoi polygons because they form a diagram that partition the area in zones based on distance to a set
-of points (see Reference [2] for an extensive explanation on Voronoi polygons, to keep it simple I will only mention here
-that Voronoi polygons graph is the complementary graph of the tesselation graph for a set of points). 
-The edges of Voronoi polygons are orthogonal on the edges that connects the closest points in the 
-area. These Voronoi polygons edges are actually crossing the graph edges at their center, being thus medians 
-for these edges. Another interesting property of the Voronoi polygons is that a certain point inside one 
-polygon will have the closest neighbor in the points that generates the Voronoi diagram the point corresponding
-to its current polygon. Thus, we will be able to see the pubs in the neighborhood of a Starbucks,
-rather than the other way around. All the pubs inside a certain Voronoi polygon have as closest Starbucks 
-the one that belongs to that polygon.
-In the process of creating the Voronoi polygons, we will have to remove duplicates Starbucks data points
-(some Starbucks can have close or same location, due to the representation of longitude and latitude 
-in the Starbucks data - **the values are rounded to second decimal**).
+We use Voronoi polygons because they form a diagram that partition the area in zones based on distance to a set of points (see Reference [2] for an extensive explanation on Voronoi polygons, to keep it simple I will only mention here that Voronoi polygons graph is the complementary graph of the tesselation graph for a set of points). 
+
+The edges of Voronoi polygons are orthogonal on the edges that connects the closest points in the  area. These Voronoi polygons edges are actually crossing the graph edges at their center, being thus medians for these edges. Another interesting property of the Voronoi polygons is that a certain point inside one polygon will have the closest neighbor in the points that generates the Voronoi diagram the point corresponding to its current polygon. Thus, we will be able to see the pubs in the neighborhood of a Starbucks,
+rather than the other way around. All the pubs inside a certain Voronoi polygon have as closest Starbucks the one that belongs to that polygon.
+
+In the process of creating the Voronoi polygons, we will have to remove duplicates Starbucks data points (some Starbucks can have close or same location, due to the representation of longitude and latitude in the Starbucks data - **the values are rounded to second decimal**). That's why in central London the Starbucks appears as aligned on a grid. It is not a real grid, but an artefact resulted from the combination of rounded geographical position (to the 2nd decimal, or aroun few kilometers) and large zoom in factor.
 
 ```{r voronoi_starbucks}
 #extract starbucks data 
@@ -157,8 +148,7 @@ sprintf("Starbucks in London: %d. Starbucks (distinct locations) in London: %d. 
 
 
 
-The number of distinct locations for Starbucks decreased to almost half of the original number of 
-Starbucks (**due to rounding of the lat/long value to only 2 digits after decimal point in the original data**).
+The number of distinct locations for Starbucks decreased to almost half of the original number of Starbucks (**due to rounding of the lat/long value to only 2 digits after decimal point in the original data**).
 
 Let's check (using plot) the result, before representing on a geographical map.
 
@@ -182,17 +172,12 @@ legend("topright",  cex = 1,
 
 
 
-The Starbucks positions are shown with green dots, the pubs positions are show with red dots and the Voronoi polygons
-associated with the Starbucks positions are shown on the same plot. Only the pubs positioned inside the plot area are
-shown here. The plot lat/long dimensions are not realistically drawn. Let's check now the results on a map view.
+The Starbucks positions are shown with green dots, the pubs positions are show with red dots and the Voronoi polygons associated with the Starbucks positions are shown on the same plot. Only the pubs positioned inside the plot area are shown here. The plot lat/long dimensions are not realistically drawn. Let's check now the results on a map view.
 
 
 ## Map view
 
-For representation of Pubs and Starbucks shops on map we will use `leaflet`. Over the map tiles we show a first layer with the
-Voronoi polygons around Starbucks locations (green, transparent polygons). The second layer has the Starbucks 
-locations (green circles) and the third layer Pubs locations (red circles). You can click on circles to read details 
-about the Starbucks (green circles) or Pubs (red circles).
+For representation of Pubs and Starbucks shops on map we will use `leaflet`. Over the map tiles we show a first layer with the Voronoi polygons around Starbucks locations (green, transparent polygons). The second layer has the Starbucks  locations (green circles) and the third layer Pubs locations (red circles). You can click on circles to read details  about the Starbucks (green circles) or Pubs (red circles).
 
 
 ```{r map_starbucks_pubs_leaflet}
@@ -237,18 +222,12 @@ leaflet(data=voronoiPolygons) %>%
 ```  
 
 
-With the Voronoi polygons it is easy now to see what is the area *covered* by a certain Starbucks and how many
-pubs are in the immediate neighborhood of a certain Starbucks. As well, if you are in a pub and would like to sober-up
-with a coffee, just look to the one in your Voronoi polygon, should be the closest to you. 
+With the Voronoi polygons it is easy now to see what is the area *covered* by a certain Starbucks and how many pubs are in the immediate neighborhood of a certain Starbucks. As well, if you are in a pub and would like to sober-up with a coffee, just look to the one in your Voronoi polygon, should be the closest to you. 
 
 
 ## Select pubs in a Starbucks area
 
-Let's select one Starbucks area and identify the Pubs inside and outside the area. We will include in the same graph
-the Voronoi polygons associated with Starbucks locations (black lines), the Starbucks locations (green filled points),
-one selected Voronoi polygon (i.e. one Starbucks area, with green filled polygon), the Pubs **inside** that area (red circles),
-the Pubs **outside** that area (black circles). For detection of points inside and outside a certain polygon we are using
-the function **inSide**.
+Let's select one Starbucks area and identify the Pubs inside and outside the area. We will include in the same graph the Voronoi polygons associated with Starbucks locations (black lines), the Starbucks locations (green filled points), one selected Voronoi polygon (i.e. one Starbucks area, with green filled polygon), the Pubs **inside** that area (red circles), the Pubs **outside** that area (black circles). For detection of points inside and outside a certain polygon we are using the function **inSide**.
 
 ```{r fig.width=8, fig.height=12,plot_polygon_inside_outside}
 # select a polygon
@@ -281,8 +260,7 @@ legend("topleft",  cex = 1,
 ```  
 
 
-We can observe that the Pubs locations **inside** the selected Starbucks area are shown as red circles over the green background
-while the Pubs locations **outside** the selected Starbucks area are shown as black circles.
+We can observe that the Pubs locations **inside** the selected Starbucks area are shown as red circles over the green background while the Pubs locations **outside** the selected Starbucks area are shown as black circles.
 
 # **Starbucks and Pubs areas**
 
@@ -331,6 +309,7 @@ title("Starbucks areas and Pubs areas\nzoom on Starbucks area")
 ```  
 
 We can see that each Starbucks area contains typically multiple Pubs areas. 
+
 Let's represent on a Leaflet map Voronoi polygons associated with Starbucks and Pubs areas.
 
 ```{r map_starbucks_pubs_leaflet_2}
@@ -362,15 +341,8 @@ leaflet(data=voronoiPolygons) %>%
 
 # **How many pubs are in the most dense Starbucks areas?**
 
-We will show now how many pubs are actually around each Starbucks in the most dense areas formed from the Voronoi
-polygons associated with each Starbucks shops. We will extract for each Voronoi polygon associated with a Starbucks
-the associated area (calculated in the lat/long metric, where each long unit is equal with a minute of longitude at the Equator, or
-60 nautical miles, i.e. approximately 111 km and is decreasing gradually to 0 for 90 degree of latitude; at London latitude, one
-degree of longitude is approximativelly half; in the same time, one degree of latitude is smaller, due to the shape of the Earth but
-relatively constant with latitude; the computation being a bit complicate, we are not transforming here from this metric to the
-metric system but just keep the relative lat/long coordinates) and will calculate as well the number of pubs in these areas.  
-Then we will represent the first 50 Starbucks, ordered from the smallest area (bottom 50). 
-On the same graph we will put as well the number of pubs in the respective area.
+We will show now how many pubs are actually around each Starbucks in the most dense areas formed from the Voronoi polygons associated with each Starbucks shops. We will extract for each Voronoi polygon associated with a Starbucks the associated area (calculated in the lat/long metric, where each long unit is equal with a minute of longitude at the Equator, or **60 nautical miles**, i.e. approximately **111 km** and is **decreasing gradually to 0 for 90 degree of latitude**; at London latitude, one degree of longitude is approximativelly half; in the same time, one degree of latitude is smaller, due to the shape of the Earth but relatively constant with latitude; the computation being a bit complicate, we are not transforming here from this metric to the metric system but just keep the relative lat/long coordinates) and will calculate as well the number of pubs in these areas.  
+Then we will represent the first 50 Starbucks, ordered from the smallest area (bottom 50).  On the same graph we will put as well the number of pubs in the respective area.
 
 ```{r fig.width=10, fig.height=8, areas}
 
@@ -416,17 +388,12 @@ area_df %>% top_n(-50,wt=Area) %>% ungroup() %>%
        x ="Starbucks addresses", y = "Area covered (lat/long metric)")
 ```
 
-We notice that some of the smallest areas contains also some of the larger number of pubs in the `bottom 50`.
-The Starbucks shop at `99 St Martins Lane`, one of the addresses with smallest area associated, has **75** pubs in 
-the associated area. As well, the Starbucks shop at `159 Great Portland Street, Canary Warf - Jubilee` has **43** pubs
-in the associated area. The largest number of pubs is **`r max(area_df$Pubs)`**.
+We notice that some of the smallest areas contains also some of the larger number of pubs in the `bottom 50`. The Starbucks shop at `99 St Martins Lane`, one of the addresses with smallest area associated, has **75** pubs in  the associated area. As well, the Starbucks shop at `159 Great Portland Street, Canary Warf - Jubilee` has **43** pubs in the associated area. The largest number of pubs is **`r max(area_df$Pubs)`**.
 
 
 # **Conclusion**
 
-We were able to draw the areas corresponding to the Starbucks and to the pubs in London area. For this purpose we used
-the Voronoi polygons diagram associated with the vertices with the coordinates of Starbucks and pubs, respectively. 
-We were able to identify the pubs in each Starbucks area and to calculate the density of plots in such an area.
+We were able to draw the areas corresponding to the Starbucks and to the pubs in London area. For this purpose we used the Voronoi polygons diagram associated with the vertices with the coordinates of Starbucks and pubs, respectively.  We were able to identify the pubs in each Starbucks area and to calculate the density of plots in such an area.
 
 # **Feedback**
 
