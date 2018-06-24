@@ -16,11 +16,7 @@ output:
 
 # **Introduction**
 
-I created this Kernel aiming to simplify the choice  between tasting an ale or enjoying a coffee
-for a traveler or local in London.  If I am in a Starbucks shop, how many pubs are closer to me 
-than to the next Starbucks?  Can I select the pubs that are closer to a Starbucks than to another? What is the area
-covered by a pub or by a Starbucks? How are these areas interwined? Are some Starbucks neighborhoods more crowded with 
-pubs than anothers? How many Starbucks and how many pubs are actually in London ? All these questions can be now answered.
+I created this Kernel aiming to simplify the choice  between tasting an ale or enjoying a coffee for a traveler or local in London.  If I am in a Starbucks shop, how many pubs are closer to me than to the next Starbucks?  Can I select the pubs that are closer to a Starbucks than to another? What is the area covered by a pub or by a Starbucks? How are these areas interwined? Are some Starbucks neighborhoods more crowded with pubs than anothers? How many Starbucks and how many pubs are actually in London ? All these questions can be now answered.
 
 <img src="https://kaggle2.blob.core.windows.net/datasets-images/828/1521/5a43c85d9bfffaf39e1c45082c2f153d/dataset-card.jpg" alt="Starbucks?" width="440" align="center">
 <img src="https://upload.wikimedia.org/wikipedia/commons/4/49/Henry_Singleton_The_Ale-House_Door_c._1790.jpg" alt="Beer?" width="360" align="center">
