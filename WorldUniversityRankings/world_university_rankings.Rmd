@@ -1,0 +1,1811 @@
+---
+title: "World Universities Rankings Exploration"
+author: "Gabriel Preda"
+date: "Created: 2018-03-25; Last updated:`r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+# **Introduction**
+
+
+![The University of Bologna, the oldest university in the World, founded in 1088 (Wikimedia Commons)](https://upload.wikimedia.org/wikipedia/commons/1/11/Bologna-vista02.jpg)
+
+The World Universities Rankings is using data about Universities Rankings from multiple sources: Center for World University Rankings 
+(CWUR), Shanghai University Rankings (AWUR), Times Higher Education University Rankings (THE). Each of these sources is using a different
+hierarchization system. Besides the World University Ranking systems, there are also information about the schools and countries, about the
+education expenditure (per country and year) and education attainment (per country and year, multiple dimmensions).
+
+
+
+# **Read the data**
+
+
+We include the R libraries used for data input, processing, analysis and visualization. We are using pacman for library management.
+
+
+```{r libraries_and_packages_management,message=FALSE,warning=FALSE}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(knitr, kableExtra, formattable, dplyr, tm, tidyr, wordcloud, 
+               ggplot2, treemap, gridExtra, grid, fmsb, leaflet, plotly,reshape, corrplot,ggrepel)
+
+options(knitr.table.format = "html") 
+```
+
+
+We read the files in the dataset.
+
+```{r,input_data, message=FALSE,warning=FALSE}
+cwurData <- read.csv("../input/world-university-rankings/cwurData.csv")
+educationExpenditure <- read.csv("../input/world-university-rankings/education_expenditure_supplementary_data.csv")
+educationalAttainment <- read.csv("../input/world-university-rankings/educational_attainment_supplementary_data.csv")
+schoolCountry <- read.csv("../input/world-university-rankings/school_and_country_table.csv")
+shanghaiData <- read.csv("../input/world-university-rankings/shanghaiData.csv")
+timesData <- read.csv("../input/world-university-rankings/timesData.csv")
+
+```
+
+# **Summary of the data**{.tabset .tabset-fade .tabset-pills}
+
+
+We have 6 data files in University Rankings dataset, as following:
+
+* cwurData.csv (`r nrow(cwurData)` rows, `r length(names(cwurData))` columns)  
+* education_expenditure_supplementary_data.csv (`r nrow(educationExpenditure)` rows, `r length(names(educationExpenditure))` columns)  
+* educational_attainment_supplementary_data.csv (`r nrow(educationalAttainment)` rows, `r length(names(educationalAttainment))` columns)  
+* school_and_country_table.csv (`r nrow(schoolCountry)` rows, `r length(names(schoolCountry))` columns)  
+* shanghaiData.csv (`r nrow(shanghaiData)` rows, `r length(names(shanghaiData))` columns)  
+* timesData.csv (`r nrow(timesData)` rows, `r length(names(timesData))` columns)  
+
+
+Let's see the first few rows of each data file and also glimpse these data files.
+
+
+
+##CWUR
+```{r glimpse_cwurData}
+#knitr::kable(head(cwurData,10),caption="Center World University Rankings information (first 10 rows)")
+kable(head(cwurData,10), "html") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+glimpse(cwurData)
+```
+
+
+##Shanghai
+```{r glimpse_shanghaiData}
+knitr::kable(head(shanghaiData,10),caption="Shanghai Ranking information (first 10 rows)")
+glimpse(shanghaiData)
+```
+
+
+##Times
+```{r glimpse_timesData}
+knitr::kable(head(timesData,10),caption="Times Higher Education World University Rankings data information (first 10 rows)")
+glimpse(timesData)
+```
+
+
+##Education expenditure
+```{r glimpse_educationExpenditure}
+knitr::kable(head(educationExpenditure,10),caption="Education expenditure information (first 10 rows)")
+glimpse(educationExpenditure)
+```
+
+##Education attainment
+```{r glimpse_educationalAttainment}
+knitr::kable(head(educationalAttainment,10),caption="Education attainment information (first 10 rows)")
+glimpse(educationalAttainment)
+```
+
+##School & country
+```{r glimpse_schoolCountry}
+knitr::kable(head(schoolCountry,10),caption="School & country information (first 10 rows)")
+glimpse(schoolCountry)
+```
+
+
+# **Center for World University Rankings (CWUR)**
+
+The Center for World University Rankings provides information for top universities in the World. They use an overal rank per university
+and individual values for the National Rank, Quality of Education, Alumni Employment, Quality of Faculty, Publications, Influence,
+Citations,	Broad Impact, Patents, and an Total	Score. All these values are for a certain year. For example, `Harvard University` has
+the first position for `2012`, with **100.00** overall score and ranks **1** for most of the dimmensions.
+
+
+##Best Universities
+
+Let's see the top 5 of Universities for the years 2012-2015, according to CWUR.
+
+
+```{r fig.width=8, fig.height=4,cwur_ooo_boxplots}
+cwurData %>% group_by(year) %>% 
+  select(year,institution,world_rank) %>% top_n(-5, wt = world_rank) %>%
+  ggplot(aes(x = year, y = world_rank, group = institution)) +       
+   geom_line(aes(color=institution)) + geom_point(aes(shape=institution, color=institution)) + theme_bw() +
+  labs(x="Year", y="World Rank", 
+      title="World Ranks (2012-2015)", subtitle="Best World ranked Universities by CWUR (smaller value is better)") 
+
+```
+
+
+Harvard is on the first place on all the years, followed by MIT on 2012 and Stanford in 2013-2015; the third place is changing 
+between Stanford (2012), Caltech (2013), with MIT holding it for 2014 and 2015.  
+
+
+![Harvard Yard (Wikimedia Commons)](https://upload.wikimedia.org/wikipedia/commons/0/0e/HarvardYard.jpg)  
+
+
+
+Let's show now top 10, based on World rank, for each year. We show the 3 first places as gold, silver and bronze, with green 
+the rest of the places. We create first a function to show the top.
+
+
+```{r cwur_top_10_year}
+cwurPlotYear <- function(nYear) {
+  cwurData %>% filter(year==nYear) %>% top_n(10,-world_rank) %>% 
+  ggplot(aes(x=reorder(institution,-world_rank), y=world_rank)) + geom_bar(stat="identity", aes(fill=reorder(institution,-world_rank)), colour="black") +
+    theme_bw() + coord_flip() +  scale_fill_manual(values=c(rep("lightgreen",7), "#CD7F32", "grey", "gold")) + guides(fill=FALSE) +
+    labs(x="Institution", y="World Rank", 
+        title=paste("Rank in ",nYear), subtitle="(smaller value is better)") 
+  
+}
+```
+
+
+
+
+```{r fig.width=12, fig.height=6,cwur_oo_boxplots}
+cwurPlotYear(2012) -> d1
+cwurPlotYear(2013) -> d2
+cwurPlotYear(2014) -> d3
+cwurPlotYear(2015) -> d4
+grid.arrange(d1,d2,d3,d4, ncol=2)
+```
+
+
+## Country ranks {.tabset .tabset-fade .tabset-pills}
+
+Let's select top 10 countries - top calculated  based on the number of universities (on all years). 
+For this top 10 we will look to the various  metrics: rank based on number of publications, number of citations, number of patents. 
+All these factors are relevant for the quality of  research done in the respective university. The better the ranks related 
+to research, the higher the quality of the research performed in the universities in that country.  We also look to 
+quality of education, alumni employment and quality of faculty ranks. Totally, there are 6 different dimmensions we analyze here.
+
+
+```{r fig.width=10, fig.height=9,cwur_boxplots}
+cwurData %>% group_by(country) %>% summarise(n = length(publications)) %>% top_n(10,n) %>% ungroup() -> c
+
+cwurData %>% filter(country %in% c$country) %>%
+ggplot(aes(x=country, y=publications, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Rank by publication", 
+      title="Rank by publication", subtitle="Grouped by country, smaller value is better") -> d1
+cwurData %>% filter(country %in% c$country) %>%
+ggplot(aes(x=country, y=citations, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Rank by citations", 
+      title="Rank by citations", subtitle="Grouped by country, smaller value is better") -> d2
+cwurData %>% filter(country %in% c$country) %>%
+ggplot(aes(x=country, y=patents, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Rank by patents", 
+      title="Rank by patents", subtitle="Grouped by country, smaller value is better") -> d3
+cwurData %>% filter(country %in% c$country) %>%
+ggplot(aes(x=country, y=quality_of_education, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Rank by quality of education", 
+      title="Rank by quality of education", subtitle="Grouped by country, smaller value is better") -> d4
+cwurData %>% filter(country %in% c$country) %>%
+ggplot(aes(x=country, y=alumni_employment, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Rank by alumni employment", 
+      title="Rank by alumni employment", subtitle="Grouped by country, smaller value is better") -> d5
+cwurData %>% filter(country %in% c$country) %>%
+ggplot(aes(x=country, y=quality_of_faculty, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Rank by quality of faculty", 
+      title="Rank by quality of faculty", subtitle="Grouped by country, smaller value is better") -> d6
+grid.arrange(d1,d2,d3,d4,d5,d6, ncol=2)
+
+```
+
+USA is leading (smaller values are the best) on all three metrics relevant for quality of research (publications, citations, patents),
+with the average value of the rank as well the smallest. It is followed by UK on all the indicators, except patents, where South Korea 
+holds an edge. Canada holds a third place on publications and citations.
+As per quality of education, alumni employment and quality of faculty, we can notice that distributions shows as unbalanced, with average
+very close to the third and fourth quartile, and with significant number of outliers in the first quartile, especially for Spain, Italy,
+Japan (quality of education), Spain, South Korea, Italy, France (alumni employment), South Korea, Japan, Germany, France, Canada 
+(quality of faculty). This means that on these three indicators, there are few high performing universities, with best ranks (smaller)
+whilst the majority of the universities in these countries have averages over 200. An exception are US and UK, where there is a large
+variation for quality of education and alumni empoloyment and averages are much lower than for the other top countries.
+
+
+
+We define a function to plot Country University Rankings. We are using the number of universities in the CWUR top as the main metric
+(will use a color range showing the number of Universities in the top, from red the smallest number to blue the largest number). We also
+show the average rank, the min (best) and max (worst) world rank.
+
+
+```{r cwur_data_plotly_world}
+cwurCountryRankYear <- function(nYear) {
+  cwurData %>% filter(year == nYear) %>% group_by(country) %>% 
+  summarise(nr = length(world_rank), minw=min(world_rank), maxw=max(world_rank), avgw=round(mean(world_rank),0)) %>%
+  select(country, nr, minw, maxw, avgw) %>% ungroup() -> ccwur
+
+# light grey boundaries
+l <- list(color = toRGB("grey"), width = 0.5)
+
+ccwur$hover <- with(ccwur, 
+        paste("Country: ", country, '<br>', 
+              "Year: ",nYear, "<br>",
+              "Universities in top: ", nr, "<br>",
+              "Min rank in top: ", minw, "<br>",
+              "Max rank in top: ", maxw, "<br>",
+              "Mean rank in top: ", avgw,"<br>"
+              ))
+# specify map projection/options
+g <- list(
+  showframe = TRUE,
+  showcoastlines = TRUE,
+  projection = list(type = 'Mercator')
+)
+
+plot_geo(ccwur, locationmode = 'country names') %>%
+  add_trace(
+    z = ~nr, color = ~nr, colors = 'Spectral',
+    text = ~hover, locations=~country, marker = list(line = l)
+  ) %>%
+  colorbar(title = 'Number of\nuniversities in top', tickprefix = '') %>%
+  layout(
+    title = with(ccwur, paste('Number of universities in top(',nYear,')<br>Source:<a href="http://cwur.org/">Council of World University Ranking</a>')),
+    geo = g
+  )
+}
+
+```
+
+We apply this function for each of the CWUR data years (from 2012 to 2015). 
+
+
+###2012
+```{r fig.width=9, fig.height=6,cwur_country_year2012}
+cwurCountryRankYear(2012)
+```
+
+###2013
+```{r fig.width=9, fig.height=8,cwur_country_year2013}
+cwurCountryRankYear(2013)
+```
+
+###2014
+```{r fig.width=9, fig.height=8,cwur_country_year2014}
+cwurCountryRankYear(2014)
+```
+
+###2015
+```{r fig.width=9, fig.height=8,cwur_country_year2015}
+cwurCountryRankYear(2015)
+```
+
+
+###  
+
+
+
+US is leading the countries top, followed by UK, Canada, France, Germany, Spain, China (last years).
+
+
+
+# **Shanghai Academic Rankings for World Universities (ARWU)**
+
+
+The Shanghai World Rankings for universities have a World Rank (smaller value is the best), a National Rank (per country, smaller
+value is best) and scores from 0 to 100 for:  
+
+* Total Score;  
+* Alumni of an institution winning Nobel Prizes and Fields Medals (alumni);    
+* Staff of an institution winning Nobel Prizes and Fields Medals (awards);    
+* Highly Citated researchers (hici);    
+* Number of papers in Nature & Science papers (ns);   
+* Papers indexed in Science Citation Index-expanded and Social Science Citation Index (pub);   
+* Per capita academic performance of an institution (pcp);  
+
+
+All these values are for a corresponding year between 2005 and 2015. As these values are all ranking between 0 and 100, it will be relevant to represent them as Spider-Web graphs.
+
+
+##Calculating missing values for Total Score
+
+The world rank is a bit misleading, since it is either a single number (like, 1, 2, 3) or an interval (100-400). This will be a bit
+complicated to use for hierarchy. We can use instead the Total Score (a number between 0 and 100). 
+First we need to solve an issue with a lot of rows with the Total Score missing (`NA`). Let's see first how many such rows are.
+There are `r plyr::count(is.na(shanghaiData$total_score))[[2,2]]` rows with Total Score NA. Fortunatelly, we can calculate the total_score
+if we do have the other values. The formula is:  
+
+``total_score = 0.1 * alumni + 0.2 * award + 0.2 * hici + 0.2 * ns + 0.2 * pub + 0.1 * pcp ``  
+
+Let's calculate the Total Score from `shanghaiData` with this formula for the entries misising the Total Score.
+
+```{r fix_shanghai_total_score}
+shanghaiDataCld = shanghaiData
+
+shanghaiDataCld$t_score = 
+  0.1 * shanghaiDataCld$alumni + 0.2 * shanghaiDataCld$award + 0.2 * shanghaiDataCld$hici + 
+  0.2 * shanghaiDataCld$ns + 0.2 * shanghaiDataCld$pub + 0.1 * shanghaiDataCld$pcp
+
+shanghaiDataCld$total_score[is.na(shanghaiDataCld$total_score)] = shanghaiDataCld$t_score[is.na(shanghaiDataCld$total_score)]
+
+```
+
+Let's check if there is still data with invalid `total_score`. The number of data rows with `NA` value of `total_score` is: 
+`r plyr::count(is.na(shanghaiDataCld$total_score))[2,2]`. Let's eliminate this additional data, since we cannot fix them.
+
+```{r eliminate_shanghai_total_score_NA}
+shanghaiDataCld = shanghaiDataCld[complete.cases(shanghaiDataCld),]
+```
+
+Let's check now if there are any more rows with `total_score` as `NA`. The number of rows in shanghaiData is `r nrow(shanghaiData)` and
+the number of rows with Total Score a valid number is: `r plyr::count(is.na(shanghaiDataCld$total_score))[[1,2]]`. The difference is 
+representing by the rows that we could not fix because we had also other features with NA values, besides `total_score`.
+The minimum Shanghai Total Score is now `r min(shanghaiDataCld$total_score)` and the maximum is still
+`r max(shanghaiDataCld$total_score)`.
+
+
+```{r fig.width=10, fig.height=4,shanghai_lines}
+#Fix the duplicate name for University of California-Berkeley
+shanghaiDataCld$university_name[shanghaiDataCld$university_name=="University of California-Berkeley"] <- "University of California, Berkeley"
+shanghaiDataCld %>% group_by(year) %>% 
+  top_n(10, wt = total_score) %>% select(year,university_name,total_score,alumni, award, hici, ns, pub, pcp) %>% ungroup() -> top10univ
+
+  ggplot(top10univ, aes(x = year, y = total_score, group = university_name)) +       
+   geom_line(aes(color=university_name)) + theme_bw() +  geom_point(aes(color=university_name)) +
+  labs(x="Year", y="World Rank", color = "University Name",
+      title="Shanghai (ARWU) World Ranks (2000-2015)", subtitle="Best ranked universities based on total score") 
+
+```
+
+The same 10 universities (University of California at Berkley appears with 2 different entries) appears in top 10. Harvard University 
+is leading with a flat 100 points as total score.
+
+## Shanghai top 10 universities {.tabset .tabset-fade .tabset-pills}
+
+Let's represent the top universities on the same graph. We will use a radarchart (Spider-Web) type of graph.
+
+```{r compare_universities_indicators}
+
+top10SpiderWebYear <- function(nYear) {
+    top10univ %>% filter(year==nYear) %>% ungroup() -> top10u
+    top10 <- as.data.frame(cbind(top10u[,c(3,4,5,6,7,8,9)]))
+    
+    colnames(top10) <- c("Total Score", "Alumni with Nobel", "Awarded Nobel", "Highly Cited", 
+                         "Nature&Science", "Publications", "PCAP")
+    rownames(top10) <- top10u$university_name
+    
+    rmin <- apply(top10,2,min); rmax <- apply(top10,2,max)
+     rmax <- 100
+     rmin <- 0
+  
+    
+    colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
+                 "yellow", "grey", "lightblue", "brown", "red", "lightgreen", "cyan" )
+
+    
+    
+    par(mfrow=c(4,3))
+    par(mar=c(1,1,5,1))
+    for(i in 1:nrow(top10)){
+      colorValue<-(col2rgb(as.character(colors_border[i]))%>% as.integer())/255
+      radarchart(rbind(rmax,rmin,top10[i,]),
+         axistype=2 , 
+         pcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 1),
+         pfcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 0.5),
+         plwd=1 , plty=1,cglcol="grey", cglty=1, axislabcol="grey", cglwd=0.5,vlcex=0.7, 
+         title=rownames(top10[i,]))
+    }
+    title(paste0('\nShanghai World University  Rankings top 10 (',nYear,')'),outer=TRUE,col.main='black',cex.main=1.5)
+
+}
+```  
+
+Press on the tab years to see the top 10 universities for each year.
+
+###2005
+```{r fig.width=10, fig.height=12,sw2005}
+top10SpiderWebYear(2005)
+```
+
+###2006
+```{r fig.width=10, fig.height=12,sw2006}
+top10SpiderWebYear(2006)
+```
+
+###2007
+```{r fig.width=10, fig.height=12,sw2007}
+top10SpiderWebYear(2007)
+```
+
+###2008
+```{r fig.width=10, fig.height=12,sw2008}
+top10SpiderWebYear(2008)
+```
+
+###2009
+```{r fig.width=10, fig.height=12,sw2009}
+top10SpiderWebYear(2009)
+```
+
+###2010
+```{r fig.width=10, fig.height=12,sw2010}
+top10SpiderWebYear(2010)
+```
+
+###2011
+```{r fig.width=10, fig.height=12,sw2011}
+top10SpiderWebYear(2011)
+```
+
+
+###2012
+```{r fig.width=10, fig.height=12,sw2012}
+top10SpiderWebYear(2012)
+```
+
+
+###2013
+```{r fig.width=10, fig.height=12,sw2013}
+top10SpiderWebYear(2013)
+```
+
+
+###2014
+```{r fig.width=10, fig.height=12,sw2014}
+top10SpiderWebYear(2014)
+```
+
+
+###2015
+```{r fig.width=10, fig.height=12,sw2015}
+top10SpiderWebYear(2015)
+```
+
+
+
+## All countries rankings {.tabset .tabset-fade .tabset-pills}
+
+
+Let's visualize first the top 10 (based on number of universities) - looking to few of the metrics available for AWUR.
+For aggregation based on country, we will need to merge Shanghai ranking data with School-Country data.
+
+```{r fig.width=10, fig.height=9,awur_boxplots}
+merge(shanghaiDataCld,schoolCountry, by.x="university_name", by.y="school_name") -> scData
+
+scData %>% group_by(country) %>% summarise(n = length(alumni)) %>% top_n(10,n) %>% ungroup() -> cs
+
+scData %>% filter(country %in% cs$country) %>%
+ggplot(aes(x=country, y=alumni, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Alumni with Nobel (score)", 
+      title="Alumni with Nobel (score)", subtitle="Grouped by country") -> d1
+scData %>% filter(country %in% cs$country) %>%
+ggplot(aes(x=country, y=award, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Nobel awards score", 
+      title="Nobel awards score", subtitle="Grouped by country") -> d2
+scData %>% filter(country %in% cs$country) %>%
+ggplot(aes(x=country, y=hici, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Highly cited score", 
+      title="Highly cited score", subtitle="Grouped by country") -> d3
+scData %>% filter(country %in% cs$country) %>%
+ggplot(aes(x=country, y=ns, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Nature & Science publications score", 
+      title="Nature & Science publications score", subtitle="Grouped by country") -> d4
+scData %>% filter(country %in% cs$country) %>%
+ggplot(aes(x=country, y=pub, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Publications score", 
+      title="Publications score", subtitle="Grouped by country") -> d5
+scData %>% filter(country %in% cs$country) %>%
+ggplot(aes(x=country, y=pcp, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Per capita performance score", 
+      title="Per capita performance score", subtitle="Grouped by country") -> d6
+
+grid.arrange(d1,d2,d3, d4, d5, d6, ncol=2)
+
+```
+
+We can notice the large outliers for Alumni with Nobel, Nobels awards, Highly cited score, Nature & Science publication score and 
+Per capita performance store for Universities in US, UK, Japan, Italy. Few of the top universities in those countries are scientific
+research powehouses and dominate the tops. With publication score there is a more balanced distribution in the top, with averages quite
+alined for most of the countries in top 10, and with a larger variance for the scores. Netherlands and China have the largest average
+values while US and Australia the largest variances.
+
+Let's represent the World countries with the number of universities in the top for all countries. 
+
+```{r shanghai_data_plotly_world}
+
+
+shanghaiCountryRankYear <- function(nYear) {
+  scData %>% filter(year == nYear) %>% group_by(country) %>% 
+  summarise(nr = length(total_score), minw=min(total_score), maxw=max(total_score), avgw=round(mean(total_score),0)) %>%
+  select(country, nr, minw, maxw, avgw) %>% ungroup() -> swur
+
+# light grey boundaries
+l <- list(color = toRGB("grey"), width = 0.5)
+
+swur$hover <- with(swur, 
+        paste("Country: ", country, '<br>', 
+              "Year: ",nYear, "<br>",
+              "Universities: ", nr, "<br>",
+              "Min total score: ", minw, "<br>",
+              "Max total score: ", maxw, "<br>",
+              "Mean total score: ", avgw,"<br>"
+              ))
+# specify map projection/options
+g <- list(
+  showframe = TRUE,
+  showcoastlines = TRUE,
+  projection = list(type = 'Mercator')
+)
+
+plot_geo(swur, locationmode = 'country names') %>%
+  add_trace(
+    z = ~nr, color = ~nr, colors = 'Spectral',
+    text = ~hover, locations=~country, marker = list(line = l)
+  ) %>%
+  colorbar(title = 'Number of\nuniversities', tickprefix = '') %>%
+  layout(
+    title = with(swur, paste('Number of universities (',nYear,')<br>Source:<a href="http://www.shanghairanking.com">Shanghai Academic World University Rankings</a>')),
+    geo = g
+  )
+}
+
+```  
+
+Press on the tab years to see the Shanghai countries ranks for each year.
+
+###2005
+```{r fig.width=9, fig.height=8,swc2005}
+shanghaiCountryRankYear(2005)
+```
+
+###2006
+```{r fig.width=9, fig.height=8,swc2006}
+shanghaiCountryRankYear(2006)
+```
+
+###2007
+```{r fig.width=9, fig.height=8,swc2007}
+shanghaiCountryRankYear(2007)
+```
+
+###2008
+```{r fig.width=9, fig.height=8,swc2008}
+shanghaiCountryRankYear(2008)
+```
+
+###2009
+```{r fig.width=9, fig.height=8,swc2009}
+shanghaiCountryRankYear(2009)
+```
+
+###2010
+```{r fig.width=9, fig.height=8,swc2010}
+shanghaiCountryRankYear(2010)
+```
+
+###2011
+```{r fig.width=9, fig.height=8,swc2011}
+shanghaiCountryRankYear(2011)
+```
+
+
+###2012
+```{r fig.width=9, fig.height=8,swc2012}
+shanghaiCountryRankYear(2012)
+```
+
+
+###2013
+```{r fig.width=9, fig.height=8,swc2013}
+shanghaiCountryRankYear(2013)
+```
+
+
+###2014
+```{r fig.width=9, fig.height=8,swc2014}
+shanghaiCountryRankYear(2014)
+```
+
+
+###2015
+```{r fig.width=9, fig.height=8,swc2015}
+shanghaiCountryRankYear(2015)
+```
+
+
+# **Times Higher Education (THE) University Rankings**
+
+The `Times Higher Education` data has information from `r min(timesData$year)` to `r min(timesData$year)`. There is a World Rank 
+(smaller values are better) and coeficients (between 0 and 100) for:  
+
+* Teaching;  
+* International Outlook (international);  
+* Research;  
+* Citations;  
+* Industry Income (not available for all);  
+* Overall (total_score).  
+
+
+Additionally, there is information about:  
+
+* Number of FTE Students;  
+* Number of Students per Staff;  
+* International Students;  
+* Female-male ratio.  
+
+
+##Top universities  {.tabset .tabset-fade .tabset-pills}
+
+
+Let's represent top 10 for each year.
+
+```{r the_top_10_year}
+timesData$wr = as.numeric(as.character(timesData$world_rank))
+thePlotYear <- function(nYear) {
+  timesData %>% filter(year==nYear) %>% top_n(10,-wr) %>% 
+  ggplot(aes(x=reorder(university_name,-wr), y=wr)) + geom_bar(stat="identity", aes(fill=reorder(university_name,-wr)), colour="black") +
+    theme_bw() + coord_flip() +  scale_fill_manual(values=c(rep("lightgreen",7), "#CD7F32", "grey", "gold")) + guides(fill=FALSE) +
+    labs(x="University name", y="World Rank", 
+        title=paste("Rank in ",nYear), subtitle="(smaller value is better)") 
+  
+}
+```
+
+
+
+
+```{r fig.width=10, fig.height=9,the_oo_top_3plus_10}
+thePlotYear(2011) -> d1
+thePlotYear(2012) -> d2
+thePlotYear(2013) -> d3
+thePlotYear(2014) -> d4
+thePlotYear(2015) -> d5
+thePlotYear(2016) -> d6
+grid.arrange(d1,d2,d3,d4,d5,d6, ncol=2)
+```
+
+We can observe as a significant difference from *CWUR* that *THE* is placing the 3 prestigious universities from UK (Cambridge, Oxford
+and Imperial College London) in top-10 (while only Cambridge and Oxford are in top-10 by CWUR). 
+Both Cambridge and Oxford are in top 5 for all or a fraction of the years. Harvard University is on the first place in 
+1 out of 6 years (2011), Caltech (California Institute of Technology) being on first place for the consecutive years 2012-2016.
+Harvard, Oxford, Stanford are sharing 2nd and 3rd place (in pairs) in 2012, 2013 and 2014. 
+
+
+
+![Panoramic view of Oxford University (Wikimedia Commons)](https://upload.wikimedia.org/wikipedia/commons/b/b8/1_oxford_aerial_panorama_2016.jpg)
+
+Let's represent the top universities on the same graph with several significant dimmensions. We will use a radiochart (Spider-Web) type of graph, as previously for AWUR (Shanghai) data.
+
+```{r the_compare_universities_indicators}
+
+timesData %>% group_by(year) %>% 
+  top_n(10, wt = total_score) %>% 
+  select(year,university_name,total_score,teaching, international, research, citations, income) %>% ungroup() -> top10univ
+
+top10univ$total_score = as.numeric(as.character(top10univ$total_score))
+top10univ$teaching = as.numeric(as.character(top10univ$teaching))
+top10univ$international = as.numeric(as.character(top10univ$international))
+top10univ$research = as.numeric(as.character(top10univ$research))
+top10univ$citations = as.numeric(as.character(top10univ$citations))
+top10univ$income = as.numeric(as.character(top10univ$income))
+top10univ$income[is.na(top10univ$income)] = 0
+
+theTop10SpiderWebYear <- function(nYear) {
+    top10univ %>% filter(year==nYear) %>% ungroup() -> top10u
+    top10 <- as.data.frame(cbind(top10u[,c(3,4,5,6,7,8)]))
+    
+    colnames(top10) <- c("Total Score", "Teaching", "International Outlook", "Research", 
+                          "Citations","Industry Income")
+    rownames(top10) <- top10u$university_name
+    
+    rmin <- apply(top10,2,min); rmax <- apply(top10,2,max)
+     rmax <- 100
+     rmin <- 0
+  
+    
+    colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
+                 "yellow", "grey", "lightblue", "brown", "red", "lightgreen", "cyan" )
+
+    
+    
+    par(mfrow=c(4,3))
+    par(mar=c(1,1,5,1))
+    for(i in 1:nrow(top10)){
+      colorValue<-(col2rgb(as.character(colors_border[i]))%>% as.integer())/255
+      radarchart(rbind(rmax,rmin,top10[i,]),
+         axistype=2 , 
+         pcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 1),
+         pfcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 0.5),
+         plwd=1 , plty=1,cglcol="grey", cglty=1, axislabcol="grey", cglwd=0.5,vlcex=0.7, 
+         title=rownames(top10[i,]))
+    }
+    title(paste0('\nTimes Higher Education  World University Rankings top 10 (',nYear,')'),outer=TRUE,col.main='black',cex.main=1.5)
+
+}
+```  
+
+Press on the tab years to see the top 10 universities for each year.
+
+###2011
+```{r fig.width=10, fig.height=12,thesw2011}
+theTop10SpiderWebYear(2011)
+
+```
+
+###2012
+```{r fig.width=10, fig.height=12,thesw2012}
+theTop10SpiderWebYear(2012)
+```
+
+###2013
+```{r fig.width=10, fig.height=12,thesw2013}
+theTop10SpiderWebYear(2013)
+```
+
+###2014
+```{r fig.width=10, fig.height=12,thesw2014}
+theTop10SpiderWebYear(2014)
+```
+
+###2015
+```{r fig.width=10, fig.height=12,thesw2015}
+theTop10SpiderWebYear(2015)
+```
+
+###2016
+```{r fig.width=10, fig.height=12,thesw2016}
+theTop10SpiderWebYear(2016)
+```
+
+
+##All countries rankings {.tabset .tabset-fade .tabset-pills}
+
+We will look to the aggregated values per country (top 10 countries) for the same factors studied also for the top 10 universities,
+i.e. Teaching, International Outlook, Research, Citations, Industry Income and Overall (total_score).   
+Where the total score, international and income values are not set, we will consider them to be 0.
+This will affect the value of aggregated values; we will use this solution for the moment, until we will find
+a better approach.
+
+
+```{r fig.width=10, fig.height=9,the_countries_boxplots,warning=FALSE}
+
+timesData$total_score = as.numeric(as.character(timesData$total_score))
+timesData$international = as.numeric(as.character(timesData$international))
+timesData$income = as.numeric(as.character(timesData$income))
+
+#replace with 0 the missing total_score values - this will affect the aggregated values
+timesData$total_score[is.na(timesData$total_score)] = 0
+timesData$international[is.na(timesData$international)] = 0
+timesData$income[is.na(timesData$income)] = 0
+
+timesData %>% group_by(country) %>% summarise(n = length(teaching)) %>% top_n(10,n) %>% ungroup() -> ct
+
+timesData %>% filter(country %in% ct$country) %>%
+ggplot(aes(x=country, y=teaching, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Teaching score", 
+      title="Teaching score", subtitle="Grouped by country") -> d1
+timesData %>% filter(country %in% ct$country) %>%
+ggplot(aes(x=country, y=international, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="International outlook score", 
+      title="International outlook score", subtitle="Grouped by country") -> d2
+timesData %>% filter(country %in% ct$country) %>%
+ggplot(aes(x=country, y=research, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Research score", 
+      title="Research score", subtitle="Grouped by country") -> d3
+timesData %>% filter(country %in% ct$country) %>%
+ggplot(aes(x=country, y=citations, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Citations score", 
+      title="Citations score", subtitle="Grouped by country") -> d4
+timesData %>% filter(country %in% ct$country) %>%
+ggplot(aes(x=country, y=income, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Industry income score", 
+      title="Industry income score", subtitle="Grouped by country") -> d5
+timesData %>% filter(country %in% ct$country) %>%
+ggplot(aes(x=country, y=total_score, col=country)) + guides(col=FALSE) +
+  geom_boxplot() +  theme_bw() + coord_flip() + 
+  labs(x="Country", y="Total score", 
+      title="Total score", subtitle="Grouped by country") -> d6
+grid.arrange(d1,d2,d3,d4, d5, d6, ncol=2)
+
+```
+
+
+Note: the total score is highly affected by missing values. Industry income (income) and International Outlook (international) are
+as well partially affected.
+
+Let's represent now the number of universities per countries on a World map. 
+We will use as value  for aggregation the total score.
+
+```{r the_data_plotly_world}
+timesData$total_score = as.numeric(as.character(timesData$total_score))
+#replace with 0 the missing total_score values - this will affect the aggregated values
+timesData$total_score[is.na(timesData$total_score)] = 0
+timesHigherEducationCountryRankYear <- function(nYear) {
+  
+
+  timesData %>% filter(year == nYear) %>% group_by(country) %>% 
+  summarise(nr = length(total_score), minw=min(total_score), maxw=max(total_score), avgw=round(mean(total_score),0)) %>%
+  select(country, nr, minw, maxw, avgw) %>% ungroup() -> ther
+
+# light grey boundaries
+l <- list(color = toRGB("grey"), width = 0.5)
+
+ther$hover <- with(ther, 
+        paste("Country: ", country, '<br>', 
+              "Year: ",nYear, "<br>",
+              "Universities: ", nr, "<br>",
+              "Min total score: ", minw, "<br>",
+              "Max total score: ", maxw, "<br>",
+              "Mean total score: ", avgw,"<br>"
+              ))
+# specify map projection/options
+g <- list(
+  showframe = TRUE,
+  showcoastlines = TRUE,
+  projection = list(type = 'Mercator')
+)
+
+plot_geo(ther, locationmode = 'country names') %>%
+  add_trace(
+    z = ~nr, color = ~nr, colors = 'Spectral',
+    text = ~hover, locations=~country, marker = list(line = l)
+  ) %>%
+  colorbar(title = 'Number of\nuniversities', tickprefix = '') %>%
+  layout(
+    title = with(ther, paste('Number of universities (',nYear,')<br>Source:<a href="https://www.timeshighereducation.com/world-university-rankings">Times Higher Education World University Ranking</a>')),
+    geo = g
+  )
+}
+
+```  
+
+Press on the tab years to see the Times Higher Education ranks per countries for each year.
+
+###2011
+```{r fig.width=9, fig.height=8,the_wm_2011,warning=FALSE}
+timesHigherEducationCountryRankYear(2011)
+```
+
+###2012
+```{r fig.width=9, fig.height=8,the_wm_2012,warning=FALSE}
+timesHigherEducationCountryRankYear(2012)
+```
+
+###2013
+```{r fig.width=9, fig.height=8,the_wm_2013,warning=FALSE}
+timesHigherEducationCountryRankYear(2013)
+```
+
+###2014
+```{r fig.width=9, fig.height=8,the_wm_2014,warning=FALSE}
+timesHigherEducationCountryRankYear(2014)
+```
+
+###2015
+```{r fig.width=9, fig.height=8,the_wm_2015,warning=FALSE}
+timesHigherEducationCountryRankYear(2015)
+```
+
+###2016
+```{r fig.width=9, fig.height=8,the_wm_2016,warning=FALSE}
+timesHigherEducationCountryRankYear(2016)
+```
+
+
+
+
+## Additional metrics
+
+As we already explained, THE contains additional metrics (Number of FTE Students, Number of Students per Staff, 
+International Students, Female-male ratio). The first three variables can be used directly, for female-male ratio we will need to process
+the data.
+
+```{r extract_female_male_ratio_THE}
+
+timesData$female_ratio <- 
+  sapply(strsplit(as.character(timesData$female_male_ratio), ":"), "[", 1)
+```
+
+Let's represent these metrics for the top 10 universities in the world.
+
+```{r fig.width=12, fig.height=12,additional_metrics_THE_show}
+timesData %>% filter(university_name %in% top10univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(gsub(",","",num_students)))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="darkgreen", colour="black", position="dodge")+ theme_bw() + coord_flip() + 
+  labs(x="University", y="FTE Students", 
+      title="FTE Students", subtitle="Top 10 universities") -> d1
+
+timesData %>% filter(university_name %in% top10univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(gsub("%","",international_students)))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="lightblue", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="University", y="International Students percentage", 
+      title="International Students percentage [%]", subtitle="Top 10 universities") -> d2
+
+
+timesData %>% filter(university_name %in% top10univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(female_ratio))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="pink", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="University", y="Female percentage", 
+      title="Female percentage [%]", subtitle="Top 10 universities") -> d3
+
+timesData %>% filter(university_name %in% top10univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(student_staff_ratio))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="lightgreen", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="University", y="Student staff ratio", 
+      title="Student staff ratio (number students per one staff)", subtitle="Top 10 universities") -> d4
+
+grid.arrange(d1,d2,d3,d4,ncol=1)
+
+```
+
+
+We can see that the Caltech has the smaller number of students, UCLA the largest, Yale University has the largest percent of female
+students (50%), ETH Zurich the smallesr (but above 30%), Yale has the smallest Student-staff ratio (less than 5) while University of
+California at Berkeley the largest (~16), the percentage of foreign students is largest at University College London (above 50%) and
+it is the smalles at University of California at Berkeley (~15%).
+
+
+
+#**Romanian Universities in World Rankings**
+
+I am a Romanian so I would like to see how Romanian Universities are placed in the World Rankings. Unfortunatelly, just
+a few universities are present, they are very low in the hierarchy, and this only in recent years.
+
+Let's look first to the Romanian universities present in CWUR hierarchy.
+
+```{r romania_presence_in_tops_cwur}
+cwurData %>% filter(country=="Romania") %>%
+  knitr::kable(caption="Center of World University Ranking information: Romanian Universities presence")
+```
+There are just two of them, `University of Bucharest` (appearing in 2014 and 2015) and `Babeș-Bolyai University` (in 2015).
+The score is around 44, on a scale from 0 to 100 (Harvard University has usually 100).
+
+Shanghai (AWUR) does not contain any Romanian university.
+
+Let's look now to the Romanian universities present in THE hierarchy.
+
+```{r romania_presence_in_tops_the}
+timesData %>% filter(country=="Romania") %>%
+  knitr::kable(caption="Times New Education World University Ranking information: Romanian Universities presence")
+```
+Four universities made the hierarchy in 2016 (the first time). 
+
+Let's represent these data from THE about Romanian Universities against the same year top 5 universities data.
+
+## Performance of top Romanian universities against top 5 World Universities
+
+```{r romania_presence_in_tops_the_comparison}
+timesData %>% filter(country=="Romania") %>% 
+  select(year,university_name,total_score,teaching, international, research, citations, income) -> theROData
+
+timesData %>% group_by(year) %>% 
+  top_n(5, wt = total_score) %>% 
+  select(year,university_name,total_score,teaching, international, research, citations, income) %>% ungroup() -> top5univ
+
+top5univ <- rbind(theROData,top5univ)
+
+top5univ$total_score = as.numeric(as.character(top5univ$total_score))
+top5univ$teaching = as.numeric(as.character(top5univ$teaching))
+top5univ$international = as.numeric(as.character(top5univ$international))
+top5univ$research = as.numeric(as.character(top5univ$research))
+top5univ$citations = as.numeric(as.character(top5univ$citations))
+top5univ$income = as.numeric(as.character(top5univ$income))
+top5univ$income[is.na(top5univ$income)] = 0
+
+theTop5SpiderWebYear <- function(nYear) {
+    top5univ %>% filter(year==nYear) %>% ungroup() -> top5u
+    top5 <- as.data.frame(cbind(top5u[,c(3,4,5,6,7,8)]))
+    
+    colnames(top5) <- c("Total Score", "Teaching", "International Outlook", "Research", 
+                          "Citations","Industry Income")
+    rownames(top5) <- top5u$university_name
+    
+    rmin <- apply(top5,2,min); rmax <- apply(top5,2,max)
+     rmax <- 100
+     rmin <- 0
+  
+    
+    colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
+                 "yellow", "grey", "lightblue", "brown", "red", "lightgreen", "cyan" )
+
+    
+    
+    par(mfrow=c(3,3))
+    par(mar=c(1,1,5,1))
+    for(i in 1:nrow(top5)){
+      colorValue<-(col2rgb(as.character(colors_border[i]))%>% as.integer())/255
+      radarchart(rbind(rmax,rmin,top5[i,]),
+         axistype=2 , 
+         pcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 1),
+         pfcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 0.5),
+         plwd=1 , plty=1,cglcol="grey", cglty=1, axislabcol="grey", cglwd=0.5,vlcex=0.7, 
+         title=rownames(top5[i,]))
+    }
+    title(paste0('\nTHE  World University Rankings top 5 vs Romanian Univ. (',nYear,')'),outer=TRUE,col.main='black',cex.main=1.5)
+
+}
+
+```
+
+
+```{r fig.width=9, fig.height=8,romania_vs_top5_the_2016}
+theTop5SpiderWebYear(2016)
+```
+
+For all variables, the performance is quite poor for the Romanian universities. They range a bit better on teaching and
+industry income but typically the performance is poor for research and generally poor for citations. The conclusion is simple. 
+For these Romanian Universities best placed in 2016 in THE World University Rankings (ranking in 501-600
+range and601-800 range) there is a lot to be improved (especially in research) in order to approach the performance of the top 
+universities in the World.
+
+## Additional metrics for Romanian Universities vs. top 5 World Universities
+
+
+Let's check now the additional metrics for THE for the Romanian Universities vs. top 5 World Universities.
+
+```{r fig.width=12, fig.height=12,additional_metrics_THE_RO_univ_show}
+
+#merge top 5 World Universities with the 4 Romanian Universities
+timesData %>% filter(country=="Romania") %>% 
+  select(university_name,num_students, international_students,female_ratio, student_staff_ratio) ->  theROData
+
+timesData %>% filter(year==2016) %>%   top_n(5, wt = total_score) %>% 
+  select(university_name,num_students, international_students,female_ratio, student_staff_ratio) %>% ungroup() -> top5univ
+
+top5univ <- rbind(theROData,top5univ)
+
+timesData %>% filter(university_name %in% top5univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(gsub(",","",num_students)))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="darkgreen", colour="black", position="dodge")+ theme_bw() + coord_flip() + 
+  labs(x="University", y="FTE Students", 
+      title="FTE Students", subtitle="Top 5 World Universities against top Romanian Universities") -> d1
+
+timesData %>% filter(university_name %in% top5univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(gsub("%","",international_students)))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="lightblue", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="University", y="International Students percentage", 
+      title="International Students percentage [%]", subtitle="Top 5 World Universities against top Romanian Universities") -> d2
+
+
+timesData %>% filter(university_name %in% top5univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(female_ratio))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="pink", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="University", y="Female percentage", 
+      title="Female percentage [%]", subtitle="Top 5 World Universities against top Romanian Universities") -> d3
+
+timesData %>% filter(university_name %in% top5univ$university_name) %>%
+ggplot(aes(x=university_name, y=as.numeric(as.character(student_staff_ratio))),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="lightgreen", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="University", y="Student staff ratio", 
+    title="Student staff ratio (number students per one staff)", subtitle="Top 5 World Universities against top Romanian Universities") -> d4
+
+grid.arrange(d1,d2,d3,d4,ncol=1)
+
+```
+
+University of Bucharest, Babes-Bolyai University (Cluj) and Alexandru Ioan Cuza University (Iasi) have all larger numbers of
+full-time students than the top 5 World Universities. Only Timisoara University (a much smaller town) has a smaller number of
+students, still, one of the largest compared with top 5 World Universities. The student-staff ratio is much higher than the
+top 5 for all Romanian universities (smaller than 20 for West University of Timisoara) with Alexandru Ioan Cuza (Iasi) topping
+at over 30 students per staff. The number of international students is small for all 4 Romanian Universities in THE Rankings, 
+with values between 2 and 5%. Alexandru Ioan Cuza University (Iasi) has almost 5% international students. As per the female-male
+ratio, here we see something characteristic to former communist countries but also a sign of modernity: female-male ratio is
+higher than 60% for all universities (65% for University of Bucharest), for two reasons: historically, female-male ratio is high,
+due to egalitarian tradition in former communist countries; as well, female ratio tend to be higher in non-technical faculties and
+all these Universities does not include technical faculties (traditionally segregated in former communist countries to separate
+higher education institutions: here the female-male ratio is smaller).
+
+
+
+
+
+## Performance of top Romanian universities against top universities in former communist countries 
+
+```{r romania_presence_in_tops_the_comp_EE}
+timesData %>% filter(country %in% c("Romania","Bulgaria", "Hungary", "Serbia", "Slovakia", "Slovenia")) %>% 
+  select(year,university_name,total_score,teaching, international, research, citations, income) -> theEEData
+
+
+theEEData$total_score = 0#as.numeric(as.character(theEEData$total_score))
+theEEData$teaching = as.numeric(as.character(theEEData$teaching))
+theEEData$international = as.numeric(as.character(theEEData$international))
+theEEData$research = as.numeric(as.character(theEEData$research))
+theEEData$citations = as.numeric(as.character(theEEData$citations))
+theEEData$income = as.numeric(as.character(theEEData$income))
+theEEData$income[is.na(theEEData$income)] = 0
+
+theEESpiderWebYear <- function(nYear) {
+    theEEData %>% filter(year==nYear) %>% ungroup() -> top5u
+    top5 <- as.data.frame(cbind(top5u[,c(3,4,5,6,7,8)]))
+    
+    colnames(top5) <- c("Total Score", "Teaching", "International Outlook", "Research", 
+                          "Citations","Industry Income")
+    rownames(top5) <- top5u$university_name
+    
+    rmin <- apply(top5,2,min); rmax <- apply(top5,2,max)
+     rmax <- 100
+     rmin <- 0
+  
+    
+    colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
+                 "yellow", "grey", "lightblue", "brown", "red", 
+                 "lightgreen", "cyan","tomato", "blue", "gold" )
+
+    
+    
+    par(mfrow=c(5,3))
+    par(mar=c(1,1,5,1))
+    for(i in 1:nrow(top5)){
+      colorValue<-(col2rgb(as.character(colors_border[i]))%>% as.integer())/255
+      radarchart(rbind(rmax,rmin,top5[i,]),
+         axistype=2 , 
+         pcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 1),
+         pfcol=rgb(colorValue[1],colorValue[2],colorValue[3], alpha = 0.5),
+         plwd=1 , plty=1,cglcol="grey", cglty=1, axislabcol="grey", cglwd=0.5,vlcex=0.7, 
+         title=rownames(top5[i,]))
+    }
+    title(paste0('\nTHE  World University Rankings: Former Communist countries (',nYear,')'),outer=TRUE,col.main='black',cex.main=1.5)
+
+}
+
+```
+
+```{r fig.width=12, fig.height=15,romania_CEE_the_2016}
+theEESpiderWebYear(2016)
+```
+
+
+# **Education Expenditure**
+
+Let's process the information about Education expenditure. There are ``r length(unique(educationExpenditure$country))`` countries
+(or suprastatal entities, like OECD, for reference) analyzed. 
+As well, there are ``r length(unique(educationExpenditure$institute_type))`` different institute types included:  
+``r unique(educationExpenditure$institute_type)``.
+As for the direct expenditure types, there are ``r length(unique(educationExpenditure$direct_expenditure_type))`` diferent values:
+``r unique(educationExpenditure$direct_expenditure_type)``.
+The data is for 6 different years, `1995`, `2000`, `2005`, `2009`, `2010` and `2011`.
+
+Let's reshape the data, to replace the columns for years with rows.
+
+```{r reshape_the_country_education_expenditure}
+cols <- c("country","institute_type", "direct_expenditure_type")
+#use melt to flatten the expenditure ration/years
+educationExpenditureFlatten <- melt(educationExpenditure, id=cols)
+colnames(educationExpenditureFlatten) <- c(cols,"year","ratio")
+#extract the year number
+educationExpenditureFlatten$year <- as.integer(substring(educationExpenditureFlatten$year, 2))
+```
+
+
+We prepare next the function for plotting the education expenditure for all the countries in the World (for which we do have the data).
+Before presenting the `institute_type` and `direct_expenditure_type` to the function, we convert the factor in characters and trim the
+white spaces (so that we can use easier the filters).
+
+```{r education_expenditure_data_plotly_world}
+
+educationExpenditureFlatten$institute_type = trimws(as.character(educationExpenditureFlatten$institute_type))
+educationExpenditureFlatten$direct_expenditure_type = trimws(as.character(educationExpenditureFlatten$direct_expenditure_type))
+
+educationExpenditureRatioYear <- function(nYear,nType, nDirectExpenditureType) {
+  
+    educationExpenditureFlatten %>% filter(year == nYear, 
+        institute_type==nType, direct_expenditure_type == nDirectExpenditureType)  -> eef
+    # light grey boundaries
+    l <- list(color = toRGB("grey"), width = 0.5)
+
+    eef$hover <- with(eef, 
+        paste("Country: ", country, '<br>', 
+              "Year: ",nYear, "<br>",
+              "Ratio: ", ratio
+              ))
+    # specify map projection/options
+    g <- list(showframe = TRUE, showcoastlines = TRUE, projection = list(type = 'Mercator'))
+
+    plot_geo(eef, locationmode = 'country names') %>%
+    add_trace(z = ~ratio, color = ~ratio, colors = 'Spectral',
+        text = ~hover, locations=~country, marker = list(line = l)) %>%
+    colorbar(title = 'Ratio', tickprefix = '%') %>%
+    layout( 
+        title = with(eef, paste('Education expenditure ratio (<b>',nYear,'</b>);<br>Institution type:<b>',nType,'</b>; Expenditure type:<b>',nDirectExpenditureType,'</b>)')),
+        geo = g
+    )
+}
+```  
+
+##All Institutions {.tabset .tabset-fade .tabset-pills}  
+
+Click on <font color="blue">Public, Private and Total expenditure</font> tabs to see the data for each type of expenditure.  
+
+
+###Public expenditure {.tabset .tabset-fade .tabset-pills}
+
+Let's show now the Public expenditures for All institutions (World map for all the years). Click on <font color="blue">year tabs</font>
+to see the data for each year.  
+
+The public expenditures ratio for all institutions are highest in 1995 in Norway (6.8%), Sweden and Finland (6.6%), Denmark (6.4%),
+followed by France & Canada (5.8%), Portugal (5.4%) and New Zeeland or Austria (5.3%). US has only 5%, being below  Poland (5.2%).
+Norway, Sweden, Denmark, Finland keep their leading position from 1995 to 2011, with the top values for 2011 being for Denmark (7.5%) 
+and Norway (7.3%). US, Germany, UK have values in those years between 4.4% and 5.6%. In 2011 US is behind countries like Brazil (5.9%) 
+or even Mexic (5%).
+
+####1995
+```{r fig.width=9, fig.height=6,eef_a_pu_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"All Institutions", "Public")
+```
+
+####2000
+```{r fig.width=9, fig.height=6,eef_a__pu_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"All Institutions","Public")
+```
+
+####2005
+```{r fig.width=9, fig.height=6,eef_a__pu_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"All Institutions","Public")
+```
+
+####2009
+```{r fig.width=9, fig.height=6,eef_a__pu_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"All Institutions","Public")
+```
+
+####2010
+```{r fig.width=9, fig.height=6,eef_a__pu_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"All Institutions","Public")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=6,eef_a__pu_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"All Institutions","Public")
+```
+
+
+
+###Private expenditure {.tabset .tabset-fade .tabset-pills}
+
+
+Let's inspect now the Private expenditures for All institutions (World map for all the years). Click on <font color="blue">year tabs</font>
+to see the data for each year.  
+
+There are no data about private expenditure for education for the years 1995 to 2010. We only have data for 2011.
+For this year, South Korea is leading with 2.8% ratio, followed by Chile (2.5%), United States (2.2%), Japan (1.6%),
+Australia (1.5%), New Zeeland (1.2%) and Mexic (1.1%).
+
+
+####1995
+```{r fig.width=9, fig.height=8,eef_a_pr_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"All Institutions", "Private")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_a__pr_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"All Institutions","Private")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_a__pr_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"All Institutions","Private")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_a__pr_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"All Institutions","Private")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_a__pr_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"All Institutions","Private")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_a_pr_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"All Institutions","Private")
+```
+
+###Total expenditure {.tabset .tabset-fade .tabset-pills}
+
+
+Let's inspect now the Total expenditures for All institutions (World map for all the years). Click on <font color="blue">year tabs</font>
+to see the data for each year.  
+
+The Total expenditure for All institutions data is available only for 2011. In 2011 the countries with largest Total expenditure
+for All institutions are Denmark (7.9%), Iceland (7.7%), South Korea (7.6%), New Zeeland (7.5%), United States (6.9%) and
+Finland (6.5%).
+
+
+####1995
+```{r fig.width=9, fig.height=8,eef_a_t_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"All Institutions", "Total")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_a__t_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"All Institutions","Total")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_a__t_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"All Institutions","Total")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_a__t_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"All Institutions","Total")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_a__t_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"All Institutions","Total")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_a_t_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"All Institutions","Total")
+```
+
+
+
+##Elementary and Secondary Institutions {.tabset .tabset-fade .tabset-pills}  
+
+Click on <font color="blue">Public, Private and Total expenditure</font> tabs to see the data for each type of expenditure.  
+
+
+###Public expenditure {.tabset .tabset-fade .tabset-pills}
+
+Let's visualize now the Public expenditures for Elementary and Secondary Institutions (World map for all the years). 
+Click on <font color="blue">year tabs</font> to see the data for each year.  
+
+North European countries are in the top starting with 1995. Sweden (4.4%), Finland (4.2%), Norway (4.1%) are leading the World
+and European countries. Follows France (4.1%), Switzerland (4.1%) and Canada (4.0%). UK has only 3.8% and US 3.5%. In the 
+following years the top keeps the Nordics in the top but we see New Zeeland on first place with 4.6% (2000), Iceland with 5.2%
+(2005, 2009). In te following years Norway is leading with 5.1% (2010) and 4.9% (2011).
+
+####1995
+```{r fig.width=9, fig.height=8,eef_es_pu_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"Elementary and Secondary Institutions", "Public")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_es_pu_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"Elementary and Secondary Institutions","Public")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_es_pu_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"Elementary and Secondary Institutions","Public")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_es_pu_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"Elementary and Secondary Institutions","Public")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_es_pu_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"Elementary and Secondary Institutions","Public")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_es_pu_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"Elementary and Secondary Institutions","Public")
+```
+
+
+###Private expenditure {.tabset .tabset-fade .tabset-pills}
+
+
+Let's see now the Privates expenditures for Elementary and Secondary Institutions (World map for all the years). 
+Click on <font color="blue">year tabs</font> to see the data for each year.  
+
+For the years from 1995 to 2010, there are no data for Elementary and Secondary Institutions (private expenditures).
+For the year 2011, the first place belongs to South Korea (0.8%). South Korea is followed by Chile (0.7%), Australia,
+New Zeeland and Mexic (0.6%). In Europe, Switzerland has the best ratio (0.5%).
+
+####1995
+```{r fig.width=9, fig.height=8,eef_es_pr_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"Elementary and Secondary Institutions", "Private")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_es_pr_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"Elementary and Secondary Institutions","Private")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_es_pr_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"Elementary and Secondary Institutions","Private")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_es_pr_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"Elementary and Secondary Institutions","Private")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_es_pr_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"Elementary and Secondary Institutions","Private")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_es_pr_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"Elementary and Secondary Institutions","Private")
+```
+
+###Total expenditure {.tabset .tabset-fade .tabset-pills}
+
+
+Let's see now the Total expenditures for Elementary and Secondary Institutions (World map for all the years). 
+Click on <font color="blue">year tabs</font> to see the data for each year.  
+
+
+The Total expenditure for Elementary and Secondary Institutions is available only for 2011. In this year the top
+countries are New Zeeland (5.4%), Iceland (4.9%), United Kingdom (4.7%), Ireland (4.6%), Denmark and Belgium (both 
+with 4.4%).
+
+####1995
+```{r fig.width=9, fig.height=8,eef_es_t_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"Elementary and Secondary Institutions", "Total")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_es_t_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"Elementary and Secondary Institutions","Total")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_es_t_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"Elementary and Secondary Institutions","Total")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_es_t_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"Elementary and Secondary Institutions","Total")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_es_t_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"Elementary and Secondary Institutions","Total")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_es_t_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"Elementary and Secondary Institutions","Total")
+```
+
+##Higher Education Institutions {.tabset .tabset-fade .tabset-pills}  
+
+Click on <font color="blue">Public, Private and Total expenditure</font> tabs to see the data for each type of expenditure.  
+
+###Public expenditure {.tabset .tabset-fade .tabset-pills}
+
+Let's visualize now the Public expenditures for Higher Education Institutions (World map for all the years). 
+Click on <font color="blue">year tabs</font> to see the data for each year.  
+
+For Higher Education Institution, starting with 1995, the Public expenditures ratios were maximum in Finland (1.7%),
+Followed by Sweden (1.6%), Norway and Canada (1.5%), Denmark (1.3%). United States was on a lower place, with only 1.1%,
+preceeded by Australia, with 1.2%. Through the years from 1995 to 2011, US kept his ratio between 0.9% and 1.1%. Finland
+kept his leading position, increasing the ratio to 1.9% for 2010 and 2011. Sweden, Norway and Denmark kept as well their
+leading position, with values above 1.5%. Greece has an interesting apparition in 2005 with a ratio of 1.4%, one of the largest.
+Israel has as well a good position, with values of ratio in the same range as US.
+Between European countries with good academic performance, France has a constant good ratio around and larger than 1%, with a
+record value of 1.3% in 2009.
+
+
+####1995
+```{r fig.width=9, fig.height=8,eef_h_pu_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"Higher Education Institutions", "Public")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_h_pu_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"Higher Education Institutions","Public")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_h_pu_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"Higher Education Institutions","Public")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_h_pu_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"Higher Education Institutions","Public")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_h_pu_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"Higher Education Institutions","Public")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_h_pu_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"Higher Education Institutions","Public")
+```
+
+
+###Private expenditure {.tabset .tabset-fade .tabset-pills}
+
+
+Let's see now the Privates expenditures for Higher Education Institutions (World map for all the years). 
+Click on <font color="blue">year tabs</font> to see the data for each year.  
+
+There are no Higher Education Institution Private education expenditure ratio information for the years 1995 to 2010.
+In 2011, the top is dominated by South Korea (1.9%), United States (1.8%), Chile (1.7%), Japan (1%), Australia (0.9%), 
+Israel (0.9%), Netherlands and Russia (0.5%).
+
+####1995
+```{r fig.width=9, fig.height=8,eef_h_pr_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"Higher Education Institutions", "Private")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_h_pr_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"Higher Education Institutions","Private")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_h_pr_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"Higher Education Institutions","Private")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_h_pr_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"Higher Education Institutions","Private")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_h_pr_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"Higher Education Institutions","Private")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_h_pr_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"Higher Education Institutions","Private")
+```
+
+###Total expenditure {.tabset .tabset-fade .tabset-pills}
+
+
+Let's see now the Total expenditures for Higher Education Institutions (World map for all the years). 
+Click on <font color="blue">year tabs</font> to see the data for each year.  
+
+The Total expenditure for Higher Education Institutions data is only available for 2011. In this year
+United States tops the countries (2.7%), followed by South Korea (2.6%), Chile (2.4%), Finland (1.9%), 
+Denmark (1.9%), Nederland (1.8%). France and Ireland have both 1.5% while United Kingdom 1.2%.
+
+####1995
+```{r fig.width=9, fig.height=8,eef_h_t_1995,warning=FALSE}
+educationExpenditureRatioYear(1995,"Higher Education Institutions", "Total")
+```
+
+####2000
+```{r fig.width=9, fig.height=8,eef_h_t_2000,warning=FALSE}
+educationExpenditureRatioYear(2000,"Higher Education Institutions","Total")
+```
+
+####2005
+```{r fig.width=9, fig.height=8,eef_h_t_2005,warning=FALSE}
+educationExpenditureRatioYear(2005,"Higher Education Institutions","Total")
+```
+
+####2009
+```{r fig.width=9, fig.height=8,eef_h_t_2009,warning=FALSE}
+educationExpenditureRatioYear(2009,"Higher Education Institutions","Total")
+```
+
+####2010
+```{r fig.width=9, fig.height=8,eef_h_t_2010,warning=FALSE}
+educationExpenditureRatioYear(2010,"Higher Education Institutions","Total")
+```
+
+
+####2011
+```{r fig.width=9, fig.height=8,eef_h_t_2011,warning=FALSE}
+educationExpenditureRatioYear(2011,"Higher Education Institutions","Total")
+```
+
+
+
+#**Is expenditure alone explaining performance?**
+
+Let's plot the top 10 countries in parallel with top expenditure (as a percent from GDP); what we try to understand is if percent
+allocated for education is enough to explain performance in education.
+
+```{r fig.width=10, fig.height=4,world_rank_cwur_expenditure}
+  cwurData %>% filter(year==2012) %>% group_by(country) %>% 
+  summarise(nr = length(world_rank)) %>%  top_n(10,nr) %>%
+
+ggplot(aes(x=reorder(country,nr), y=nr),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="lightgreen", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="Country", y="Number of universities in top", 
+    title="Number of universities (2012)", subtitle="Top 10 countries - World University Rankings (CWUR)") -> d1
+
+  educationExpenditureFlatten %>% filter(year==2011,institute_type=="Higher Education Institutions", direct_expenditure_type =="Total") %>% top_n(10,ratio) %>%
+
+ggplot(aes(x=reorder(country,ratio), y=ratio),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="gold", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="Country", y="Total expenditure percent", 
+    title="Total education expenditure (2011)", subtitle="Top 10 countries - Higher Education Institutions") -> d2
+  
+grid.arrange(d1,d2,ncol=2)
+
+```
+
+
+Let's merge Education expenditure per country data with UN Data showing the GDP for the countries. This will help us normalize the 
+expenditure per country, since the ratio that we were using until now aplies to very different GDP.
+
+
+```{r input_undata,message=FALSE,warning=FALSE}
+undata <- read.csv("../input/undata-country-profiles/country_profile_variables.csv")
+```
+
+
+```{r fig.width=10, fig.height=4,find_real_expenditure_per_country}
+undata$country <- as.character(undata$country)
+undata$country[undata$country=="United States of America"] <- "United States"
+education_expenditure_total <- merge(undata,educationExpenditureFlatten, by="country")
+education_expenditure_total$eet = education_expenditure_total$GDP..Gross.domestic.product..million.current.US.. * education_expenditure_total$ratio / 100 / 1000
+
+  cwurData %>% filter(year==2012) %>% group_by(country) %>% 
+  summarise(nr = length(world_rank)) %>%  top_n(10,nr) %>%
+
+ggplot(aes(x=reorder(country,nr), y=nr),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="lightgreen", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="Country", y="Number of universities in top", 
+    title="Number of universities (2012)", subtitle="Top 10 countries - World University Rankings (CWUR)") -> d1
+
+  education_expenditure_total %>% filter(year==2011,institute_type=="Higher Education Institutions", direct_expenditure_type =="Total") %>% top_n(10,eet) %>%
+
+ggplot(aes(x=reorder(country,eet), y=eet),fill=year) + guides(fill=FALSE) +
+  geom_bar(stat="identity", fill="gold", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
+  labs(x="Country", y="Total expenditure (Billions USD)", 
+    title="Total education expenditure (2011)", subtitle="Top 10 countries - Higher Education Institutions") -> d2
+  
+grid.arrange(d1,d2,ncol=2)
+
+```
+
+The result is now much closed to something we expected: Total Higher Education expenditure top includes the now allmost the same countries
+as the Number of universities in CWUR per country. **USA**, **Japan**, **United Kingdom**, **France** are all in top 5 in both tops.
+The countries that are in top 10 for number of universities in the CWUR and not in top of country Total Higher Education expenditure are **Israel**, **Swizerland** and **Canada**. The countries that are in the Total Higher Education expenditure top but not in the Number 
+of universities in CWUR top 10 are **Italy**, **Spain** and **Mexico**. **Israel**, **United Kingdom**, **Switzerland**, **Canada**
+shows a very good efficiency of investment in Higher Education in terms of performance of universities.
+
+
+
+```{r real_expenditure_per_country}
+
+cwurData %>% 
+  filter(year==2012) %>%
+  group_by(country) %>% 
+  summarise(nr = length(world_rank)) -> univ_per_country
+
+univ_per_country$country <- as.character(univ_per_country$country)
+
+univ_per_country$country[univ_per_country$country=="USA"] <- 'United States'
+
+  education_expenditure_total %>% filter(year==2011, institute_type=="Higher Education Institutions", direct_expenditure_type =="Total") -> education_expenditure_higher_total
+
+education_expenditure_higher_total = merge(education_expenditure_higher_total,univ_per_country, by="country", all.x=TRUE)
+
+  
+education_features = c("country", "year", "nr","eet",
+                        "Education..Government.expenditure....of.GDP.",  
+                        "Surface.area..km2.",
+                        "Population.in.thousands..2017.", 
+                        "GDP.per.capita..current.US.." )
+
+education_expenditure_higher_total_f = education_expenditure_higher_total[,education_features]
+education_expenditure_higher_total_f <- 
+  education_expenditure_higher_total_f[complete.cases(education_expenditure_higher_total_f), ]
+
+
+education_expenditure_higher_total_f$Education..Government.expenditure....of.GDP. = as.numeric(education_expenditure_higher_total_f$Education..Government.expenditure....of.GDP.)
+education_expenditure_higher_total_f$Surface.area..km2. = as.numeric(education_expenditure_higher_total_f$Surface.area..km2.)
+education_expenditure_higher_total_f$Population.in.thousands..2017. = as.numeric(education_expenditure_higher_total_f$Population.in.thousands..2017.)
+education_expenditure_higher_total_f$GDP.per.capita..current.US.. = as.numeric(education_expenditure_higher_total_f$GDP.per.capita..current.US..)
+
+
+names(education_expenditure_higher_total_f) <- c(
+  "country",
+  "year",
+  "Number of universities in top",
+  "Higher education total expenses",
+  "Education Gov. expend. % GDP",
+  "Surface (km2)",
+  "Population (thousands)",
+  "GDP per capita (USD)"
+)
+
+eeht <- education_expenditure_higher_total_f[,3:8]
+
+correlations <- cor(eeht,method="pearson")
+
+corrplot(correlations, number.cex = .9, tl.cex=0.7, tl.col = "black")
+```   
+
+There is a high positive correlation between the number of universities in top per country and the Higher Education total expenses.
+As well, he population is highly correlated with both number of universities in top and the Higher Educaiton total expenses. Smaller but still positive correlation is beween the GDP per capita and the Education Government expenses percent from GDP.
+
+
+Let's represent the number of universities in top per country (in 2012) as a function of Higher Education total expenses (in 2011)
+per country (we already did see that these values are highly correlated).
+
+
+```{r fig.width=10, fig.height=6,real_expenditure_per_country_plot}
+
+education_expenditure_higher_total_f %>%
+  ggplot(aes(x=`Higher education total expenses`, y=`Number of universities in top`)) + guides(fill=FALSE) +
+  geom_point() + geom_smooth(method=lm) + theme_bw() + 
+  geom_label_repel(aes(label = country),box.padding=0.15, point.padding=0.25,segment.color = 'blue') +
+  labs(x="Higher Education total expenses - 2011 [billions USD]", y="Number of universities in top (2012)", 
+    title="Number of universities in top (2012)", subtitle="World University Rankings (CWUR)")
+
+```
+
+Also from this representation we can notice that there is a good correlation between Higher Education total expenses and the 
+number of universitie in top. In terms of efficiency, United Kingdom, Israel, Norway have a higher efficiency, with a number
+of universities in the World Rankings higher / Higher education total expenses compared with Japan or Italy.
+
+# **Conclusions**
+
+We represented the Center for World University Rankings data (CWUR) for years 2012-2015, Shanghai - Academic World University
+Rankings (AWUR) data for 2005-2015 and Times Higher Education (THE) World University Rankings (2011-2016). For all three datasets, 
+the top of Universities (per year - based on World Ranking and Research and Academic performance related metrics), the country 
+aggregated values (per year) are represented. Harvard University (followed by few other US Universities and UK Universities) are 
+dominating in `CWUR` and `AWUR` rankings. In `THE ranking, UK and US universities are sharing more evenly the top 10.
+As for countries, in early years US, UK, Canada, France, Spain, Germany, Australia, Japan are in top, in recent years (qfter 2010) 
+China takes as well a top position. Public expenditure is higher in the Nordic European countries for All Institutions and as well
+for Higher Education only whilst private spending for Higher Education is highest in United States and South Korea. Public and
+private expenditures, especially for Higher Education are not explaining alone the high performance of certain Universities. While
+in the Nordics, South Korea, New Zeeland the high expenditures are not resulting in a consistent presence of the Universities in the
+World top, the high percents in United States are consistent with the presence of the top US Universities in the World Rankings tops.
+Adding data from UNData dataset, to extract the GDP (Gross Domestic Product) allowed us to compare actuall total expenditure (by
+multiplying the GDP with ratio) and we were able to see a good correlation between top 5 total expenditure for Higher Education / country 
+and the number of universities / country.
+
+# **Feedback**
+
+This Kernel is still under development. I would highly appreciate your feedback for improvement and, of course, if you like it, please
+**upvote it!**
+
+# **References**
+
+[1] Center for World University Rankings (CWUR), http://cwur.org/  
+[2] Shanghai Rankings - - Academic Rankings for World Universities (ARWU), http://www.shanghairanking.com/  
+[3] Shanghai Rankings - Academic Rankings for World Universities (ARWU) Methodology, http://www.shanghairanking.com/ARWU-Methodology-2015.html  
+[4] Times Higher Education (THE) University Rankings, https://www.timeshighereducation.com/world-university-rankings  
+[5] Public Spending on Education, OECD Data, https://data.oecd.org/eduresource/public-spending-on-education.htm  
+[6] Private Spendig on Education, OECD Data, https://data.oecd.org/eduresource/private-spending-on-education.htm  
