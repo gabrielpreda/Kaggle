@@ -367,7 +367,7 @@ shanghaiDataCld %>% group_by(year) %>%
   ggplot(top10univ, aes(x = year, y = total_score, group = university_name)) +       
    geom_line(aes(color=university_name)) + theme_bw() +  geom_point(aes(color=university_name)) +
   labs(x="Year", y="World Rank", color = "University Name",
-      title="Shanghai (ARWU) World Ranks (2000-2015)", subtitle="Best ranked universities based on total score") 
+      title="Shanghai (ARWU) World Ranks (2005-2015)", subtitle="Best ranked universities based on total score") 
 
 ```
 
