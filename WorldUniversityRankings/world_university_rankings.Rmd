@@ -1779,22 +1779,30 @@ Also from this representation we can notice that there is a good correlation bet
 number of universitie in top. In terms of efficiency, United Kingdom, Israel, Norway have a higher efficiency, with a number
 of universities in the World Rankings higher / Higher education total expenses compared with Japan or Italy.
 
+Let's represent the same graph, without US.
+
+```{r fig.width=10, fig.height=6,real_expenditure_per_country_plot_no_US}
+
+education_expenditure_higher_total_f %>% filter(country != "United States") %>%
+  ggplot(aes(x=`Higher education total expenses`, y=`Number of universities in top`)) + guides(fill=FALSE) +
+  geom_point() + geom_smooth(method=lm) + theme_bw() + 
+  geom_label_repel(aes(label = country),box.padding=0.15, point.padding=0.25,segment.color = 'blue') +
+  labs(x="Higher Education total expenses - 2011 [billions USD]", y="Number of universities in top (2012)", 
+    title="Number of universities in top (2012)", subtitle="World University Rankings (CWUR)")
+
+```
+
+
 # **Conclusions**
 
-We represented the Center for World University Rankings data (CWUR) for years 2012-2015, Shanghai - Academic World University
-Rankings (AWUR) data for 2005-2015 and Times Higher Education (THE) World University Rankings (2011-2016). For all three datasets, 
-the top of Universities (per year - based on World Ranking and Research and Academic performance related metrics), the country 
-aggregated values (per year) are represented. Harvard University (followed by few other US Universities and UK Universities) are 
-dominating in `CWUR` and `AWUR` rankings. In `THE ranking, UK and US universities are sharing more evenly the top 10.
-As for countries, in early years US, UK, Canada, France, Spain, Germany, Australia, Japan are in top, in recent years (qfter 2010) 
-China takes as well a top position. Public expenditure is higher in the Nordic European countries for All Institutions and as well
-for Higher Education only whilst private spending for Higher Education is highest in United States and South Korea. Public and
-private expenditures, especially for Higher Education are not explaining alone the high performance of certain Universities. While
-in the Nordics, South Korea, New Zeeland the high expenditures are not resulting in a consistent presence of the Universities in the
-World top, the high percents in United States are consistent with the presence of the top US Universities in the World Rankings tops.
+We represented the Center for World University Rankings data (CWUR) for years 2012-2015, Shanghai - Academic World University Rankings (AWUR) data for 2005-2015 and Times Higher Education (THE) World University Rankings (2011-2016). For all three datasets,  the top of Universities (per year - based on World Ranking and Research and Academic performance related metrics), the country aggregated values (per year) are represented. Harvard University (followed by few other US Universities and UK Universities) are dominating in `CWUR` and `AWUR` rankings. In `THE ranking, UK and US universities are sharing more evenly the top 10.  
+
+As for countries, in early years US, UK, Canada, France, Spain, Germany, Australia, Japan are in top, in recent years (qfter 2010) China takes as well a top position. Public expenditure is higher in the Nordic European countries for All Institutions and as well for Higher Education only whilst private spending for Higher Education is highest in United States and South Korea. Public and private expenditures, especially for Higher Education are not explaining alone the high performance of certain Universities. While in the Nordics, South Korea, New Zeeland the high expenditures are not resulting in a consistent presence of the Universities in the World top, the high percents in United States are consistent with the presence of the top US Universities in the World Rankings tops.  
+
 Adding data from UNData dataset, to extract the GDP (Gross Domestic Product) allowed us to compare actuall total expenditure (by
 multiplying the GDP with ratio) and we were able to see a good correlation between top 5 total expenditure for Higher Education / country 
-and the number of universities / country.
+and the number of universities / country.  
+
 
 # **Feedback**
 
