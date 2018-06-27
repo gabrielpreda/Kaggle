@@ -18,11 +18,7 @@ output:
 
 ![The University of Bologna, the oldest university in the World, founded in 1088 (Wikimedia Commons)](https://upload.wikimedia.org/wikipedia/commons/1/11/Bologna-vista02.jpg)
 
-The World Universities Rankings is using data about Universities Rankings from multiple sources: Center for World University Rankings 
-(CWUR), Shanghai University Rankings (AWUR), Times Higher Education University Rankings (THE). Each of these sources is using a different
-hierarchization system. Besides the World University Ranking systems, there are also information about the schools and countries, about the
-education expenditure (per country and year) and education attainment (per country and year, multiple dimmensions).
-
+The World Universities Rankings is using data about Universities Rankings from multiple sources: Center for World University Rankings (CWUR), Shanghai University Rankings (AWUR), Times Higher Education University Rankings (THE). Each of these sources is using a different hierarchization system. Besides the World University Ranking systems, there are also information about the schools and countries, about the education expenditure (per country and year) and education attainment (per country and year, multiple dimmensions).
 
 
 # **Read the data**
@@ -32,6 +28,7 @@ We include the R libraries used for data input, processing, analysis and visuali
 
 
 ```{r libraries_and_packages_management,message=FALSE,warning=FALSE}
+#use pacman for package management
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(knitr, kableExtra, formattable, dplyr, tm, tidyr, wordcloud, 
                ggplot2, treemap, gridExtra, grid, fmsb, leaflet, plotly,reshape, corrplot,ggrepel)
@@ -43,6 +40,7 @@ options(knitr.table.format = "html")
 We read the files in the dataset.
 
 ```{r,input_data, message=FALSE,warning=FALSE}
+#input of datasets from world-university-rankings
 cwurData <- read.csv("../input/world-university-rankings/cwurData.csv")
 educationExpenditure <- read.csv("../input/world-university-rankings/education_expenditure_supplementary_data.csv")
 educationalAttainment <- read.csv("../input/world-university-rankings/educational_attainment_supplementary_data.csv")
@@ -113,10 +111,7 @@ glimpse(schoolCountry)
 
 # **Center for World University Rankings (CWUR)**
 
-The Center for World University Rankings provides information for top universities in the World. They use an overal rank per university
-and individual values for the National Rank, Quality of Education, Alumni Employment, Quality of Faculty, Publications, Influence,
-Citations,	Broad Impact, Patents, and an Total	Score. All these values are for a certain year. For example, `Harvard University` has
-the first position for `2012`, with **100.00** overall score and ranks **1** for most of the dimmensions.
+The Center for World University Rankings provides information for top universities in the World. They use an overal rank per university and individual values for the National Rank, Quality of Education, Alumni Employment, Quality of Faculty, Publications, Influence, Citations,	Broad Impact, Patents, and an Total	Score. All these values are for a certain year. For example, `Harvard University` has the first position for `2012`, with **100.00** overall score and ranks **1** for most of the dimmensions.
 
 
 ##Best Universities
@@ -135,16 +130,14 @@ cwurData %>% group_by(year) %>%
 ```
 
 
-Harvard is on the first place on all the years, followed by MIT on 2012 and Stanford in 2013-2015; the third place is changing 
-between Stanford (2012), Caltech (2013), with MIT holding it for 2014 and 2015.  
+Harvard is on the first place on all the years, followed by MIT on 2012 and Stanford in 2013-2015; the third place is changing between Stanford (2012), Caltech (2013), with MIT holding it for 2014 and 2015.  
 
 
 ![Harvard Yard (Wikimedia Commons)](https://upload.wikimedia.org/wikipedia/commons/0/0e/HarvardYard.jpg)  
 
 
 
-Let's show now top 10, based on World rank, for each year. We show the 3 first places as gold, silver and bronze, with green 
-the rest of the places. We create first a function to show the top.
+Let's show now top 10, based on World rank, for each year. We show the 3 first places as gold, silver and bronze, with green the rest of the places. We create first a function to show the top.
 
 
 ```{r cwur_top_10_year}
@@ -174,9 +167,7 @@ grid.arrange(d1,d2,d3,d4, ncol=2)
 
 Let's select top 10 countries - top calculated  based on the number of universities (on all years). 
 For this top 10 we will look to the various  metrics: rank based on number of publications, number of citations, number of patents. 
-All these factors are relevant for the quality of  research done in the respective university. The better the ranks related 
-to research, the higher the quality of the research performed in the universities in that country.  We also look to 
-quality of education, alumni employment and quality of faculty ranks. Totally, there are 6 different dimmensions we analyze here.
+All these factors are relevant for the quality of  research done in the respective university. The better the ranks related to research, the higher the quality of the research performed in the universities in that country.  We also look to quality of education, alumni employment and quality of faculty ranks. Totally, there are 6 different dimmensions we analyze here.
 
 
 ```{r fig.width=10, fig.height=9,cwur_boxplots}
@@ -216,21 +207,12 @@ grid.arrange(d1,d2,d3,d4,d5,d6, ncol=2)
 
 ```
 
-USA is leading (smaller values are the best) on all three metrics relevant for quality of research (publications, citations, patents),
-with the average value of the rank as well the smallest. It is followed by UK on all the indicators, except patents, where South Korea 
-holds an edge. Canada holds a third place on publications and citations.
-As per quality of education, alumni employment and quality of faculty, we can notice that distributions shows as unbalanced, with average
-very close to the third and fourth quartile, and with significant number of outliers in the first quartile, especially for Spain, Italy,
-Japan (quality of education), Spain, South Korea, Italy, France (alumni employment), South Korea, Japan, Germany, France, Canada 
-(quality of faculty). This means that on these three indicators, there are few high performing universities, with best ranks (smaller)
-whilst the majority of the universities in these countries have averages over 200. An exception are US and UK, where there is a large
-variation for quality of education and alumni empoloyment and averages are much lower than for the other top countries.
+USA is leading (smaller values are the best) on all three metrics relevant for quality of research (publications, citations, patents), with the average value of the rank as well the smallest. It is followed by UK on all the indicators, except patents, where South Korea holds an edge. Canada holds a third place on publications and citations.  
+
+As per quality of education, alumni employment and quality of faculty, we can notice that distributions shows as unbalanced, with average very close to the third and fourth quartile, and with significant number of outliers in the first quartile, especially for Spain, Italy, Japan (quality of education), Spain, South Korea, Italy, France (alumni employment), South Korea, Japan, Germany, France, Canada (quality of faculty). This means that on these three indicators, there are few high performing universities, with best ranks (smaller) whilst the majority of the universities in these countries have averages over 200. An exception are US and UK, where there is a large variation for quality of education and alumni empoloyment and averages are much lower than for the other top countries.
 
 
-
-We define a function to plot Country University Rankings. We are using the number of universities in the CWUR top as the main metric
-(will use a color range showing the number of Universities in the top, from red the smallest number to blue the largest number). We also
-show the average rank, the min (best) and max (worst) world rank.
+We define a function to plot Country University Rankings. We are using the number of universities in the CWUR top as the main metric (will use a color range showing the number of Universities in the top, from red the smallest number to blue the largest number). We also show the average rank, the min (best) and max (worst) world rank.
 
 
 ```{r cwur_data_plotly_world}
@@ -324,10 +306,10 @@ All these values are for a corresponding year between 2005 and 2015. As these va
 ##Calculating missing values for Total Score
 
 The world rank is a bit misleading, since it is either a single number (like, 1, 2, 3) or an interval (100-400). This will be a bit
-complicated to use for hierarchy. We can use instead the Total Score (a number between 0 and 100). 
+complicated to use for hierarchy. We can use instead the Total Score (a number between 0 and 100).  
+
 First we need to solve an issue with a lot of rows with the Total Score missing (`NA`). Let's see first how many such rows are.
-There are `r plyr::count(is.na(shanghaiData$total_score))[[2,2]]` rows with Total Score NA. Fortunatelly, we can calculate the total_score
-if we do have the other values. The formula is:  
+There are `r plyr::count(is.na(shanghaiData$total_score))[[2,2]]` rows with Total Score NA. Fortunatelly, we can calculate the total_score if we do have the other values. The formula is:  
 
 ``total_score = 0.1 * alumni + 0.2 * award + 0.2 * hici + 0.2 * ns + 0.2 * pub + 0.1 * pcp ``  
 
@@ -351,9 +333,8 @@ Let's check if there is still data with invalid `total_score`. The number of dat
 shanghaiDataCld = shanghaiDataCld[complete.cases(shanghaiDataCld),]
 ```
 
-Let's check now if there are any more rows with `total_score` as `NA`. The number of rows in shanghaiData is `r nrow(shanghaiData)` and
-the number of rows with Total Score a valid number is: `r plyr::count(is.na(shanghaiDataCld$total_score))[[1,2]]`. The difference is 
-representing by the rows that we could not fix because we had also other features with NA values, besides `total_score`.
+Let's check now if there are any more rows with `total_score` as `NA`. The number of rows in shanghaiData is `r nrow(shanghaiData)` and the number of rows with Total Score a valid number is: `r plyr::count(is.na(shanghaiDataCld$total_score))[[1,2]]`. The difference is  representing by the rows that we could not fix because we had also other features with NA values, besides `total_score`.  
+
 The minimum Shanghai Total Score is now `r min(shanghaiDataCld$total_score)` and the maximum is still
 `r max(shanghaiDataCld$total_score)`.
 
@@ -371,8 +352,7 @@ shanghaiDataCld %>% group_by(year) %>%
 
 ```
 
-The same 10 universities (University of California at Berkley appears with 2 different entries) appears in top 10. Harvard University 
-is leading with a flat 100 points as total score.
+The same 10 universities (University of California at Berkley appears with 2 different entries) appears in top 10. Harvard University is leading with a flat 100 points as total score.
 
 ## Shanghai top 10 universities {.tabset .tabset-fade .tabset-pills}
 
@@ -480,7 +460,8 @@ top10SpiderWebYear(2015)
 ## All countries rankings {.tabset .tabset-fade .tabset-pills}
 
 
-Let's visualize first the top 10 (based on number of universities) - looking to few of the metrics available for AWUR.
+Let's visualize first the top 10 (based on number of universities) - looking to few of the metrics available for AWUR.  
+
 For aggregation based on country, we will need to merge Shanghai ranking data with School-Country data.
 
 ```{r fig.width=10, fig.height=9,awur_boxplots}
@@ -524,10 +505,7 @@ grid.arrange(d1,d2,d3, d4, d5, d6, ncol=2)
 ```
 
 We can notice the large outliers for Alumni with Nobel, Nobels awards, Highly cited score, Nature & Science publication score and 
-Per capita performance store for Universities in US, UK, Japan, Italy. Few of the top universities in those countries are scientific
-research powehouses and dominate the tops. With publication score there is a more balanced distribution in the top, with averages quite
-alined for most of the countries in top 10, and with a larger variance for the scores. Netherlands and China have the largest average
-values while US and Australia the largest variances.
+Per capita performance store for Universities in US, UK, Japan, Italy. Few of the top universities in those countries are scientific research powehouses and dominate the tops. With publication score there is a more balanced distribution in the top, with averages quite alined for most of the countries in top 10, and with a larger variance for the scores. Netherlands and China have the largest average values while US and Australia the largest variances.
 
 Let's represent the World countries with the number of universities in the top for all countries. 
 
@@ -638,21 +616,80 @@ shanghaiCountryRankYear(2015)
 The `Times Higher Education` data has information from `r min(timesData$year)` to `r min(timesData$year)`. There is a World Rank 
 (smaller values are better) and coeficients (between 0 and 100) for:  
 
-* Teaching;  
-* International Outlook (international);  
-* Research;  
-* Citations;  
-* Industry Income (not available for all);  
+* Teaching (teaching/the learning environment);  
+* International Outlook (international/staff, students and research);  
+* Research (research/volume, income and reputation);  
+* Citations (citations/research influence);  
+* Industry Income (income/knowledge transfer, value not available for all);  
 * Overall (total_score).  
 
 
-Additionally, there is information about:  
+
+The weight of the above factors in calculating the total score are as following:  
+
+* Teaching: 30%;  
+* International Outlook 7.5%;  
+* Research: 30%;  
+* Citations: 30%;  
+* Industry Income: 2.5%;  
+
+The folowwing graph is showing the elements that are included in the calculation of the total score for Times Higher Education.  
+
+![Formula for calculation of total score (Times Higher Education)](https://www.timeshighereducation.com/sites/default/files/methodology-illustration-wur.jpg)  
+
+
+The calculation formula for **total_score** is:  
+
+``total_score = 0.3 * teaching + 0.075 * international + 0.3 * research + 0.3 * citations + 0.025 * income``   
+
+
+Additionally, in the THE dataset there is information about:  
 
 * Number of FTE Students;  
 * Number of Students per Staff;  
 * International Students;  
 * Female-male ratio.  
 
+
+##Calculating missing values for Total Score
+
+We first replace the special character used for missing data with `NA`. Then we convert factors to numeric values. Then we replace NA values with 0. We calculate the total score using the formula given above. We are replacing the non available values for total score with the calculated ones.
+
+
+```{r the_adjust_total_score_where_missing}
+
+#replace first the missing values (`-`) with NA
+timesData$teaching[timesData$teaching=='-'] <- NA
+timesData$international[timesData$international=='-'] <- NA
+timesData$research[timesData$research=='-'] <- NA
+timesData$citations[timesData$citations=='-'] <- NA
+timesData$income[timesData$income=='-'] <- NA
+timesData$total_score[timesData$total_score=='-'] <- NA
+
+#replace factors with numeric
+timesData$teaching <- as.numeric(as.character(timesData$teaching))
+timesData$international <- as.numeric(as.character(timesData$international))
+timesData$research <- as.numeric(as.character(timesData$research))
+timesData$citations <- as.numeric(as.character(timesData$citations))
+timesData$income <- as.numeric(as.character(timesData$income))
+timesData$total_score <- as.numeric(as.character(timesData$total_score))
+
+# replace NAs with 0
+timesData$income[is.na(timesData$income)] <- 0
+timesData$international[is.na(timesData$international)] <- 0
+
+
+#calculate the total score
+timesData$t_score = 
+  0.3 * as.numeric(as.character(timesData$teaching)) + 
+  0.075 * as.numeric(as.character(timesData$international)) + 
+  0.3 * as.numeric(as.character(timesData$research)) + 
+  0.3 * as.numeric(as.character(timesData$citations)) + 
+  0.025 * as.numeric(as.character(timesData$income))
+  
+#replace the total_score where missing with the calculated value
+timesData$total_score[is.na(timesData$total_score)] <- timesData$t_score[is.na(timesData$total_score)]
+```
 
 ##Top universities  {.tabset .tabset-fade .tabset-pills}
 
@@ -684,31 +721,21 @@ thePlotYear(2016) -> d6
 grid.arrange(d1,d2,d3,d4,d5,d6, ncol=2)
 ```
 
-We can observe as a significant difference from *CWUR* that *THE* is placing the 3 prestigious universities from UK (Cambridge, Oxford
-and Imperial College London) in top-10 (while only Cambridge and Oxford are in top-10 by CWUR). 
-Both Cambridge and Oxford are in top 5 for all or a fraction of the years. Harvard University is on the first place in 
-1 out of 6 years (2011), Caltech (California Institute of Technology) being on first place for the consecutive years 2012-2016.
+We can observe as a significant difference from *CWUR* that *THE* is placing the 3 prestigious universities from UK (Cambridge, Oxford and Imperial College London) in top-10 (while only Cambridge and Oxford are in top-10 by CWUR). 
+Both Cambridge and Oxford are in top 5 for all or a fraction of the years. Harvard University is on the first place in 1 out of 6 years (2011), Caltech (California Institute of Technology) being on first place for the consecutive years 2012-2016.  
 Harvard, Oxford, Stanford are sharing 2nd and 3rd place (in pairs) in 2012, 2013 and 2014. 
 
 
 
 ![Panoramic view of Oxford University (Wikimedia Commons)](https://upload.wikimedia.org/wikipedia/commons/b/b8/1_oxford_aerial_panorama_2016.jpg)
 
-Let's represent the top universities on the same graph with several significant dimmensions. We will use a radiochart (Spider-Web) type of graph, as previously for AWUR (Shanghai) data.
+Let's represent the top universities on the same graph with several significant dimmensions. We will use a radiochart (Spider-Web) type of graph, as previously for AWUR (Shanghai) data.  
 
 ```{r the_compare_universities_indicators}
 
 timesData %>% group_by(year) %>% 
   top_n(10, wt = total_score) %>% 
   select(year,university_name,total_score,teaching, international, research, citations, income) %>% ungroup() -> top10univ
-
-top10univ$total_score = as.numeric(as.character(top10univ$total_score))
-top10univ$teaching = as.numeric(as.character(top10univ$teaching))
-top10univ$international = as.numeric(as.character(top10univ$international))
-top10univ$research = as.numeric(as.character(top10univ$research))
-top10univ$citations = as.numeric(as.character(top10univ$citations))
-top10univ$income = as.numeric(as.character(top10univ$income))
-top10univ$income[is.na(top10univ$income)] = 0
 
 theTop10SpiderWebYear <- function(nYear) {
     top10univ %>% filter(year==nYear) %>% ungroup() -> top10u
@@ -781,22 +808,13 @@ theTop10SpiderWebYear(2016)
 ##All countries rankings {.tabset .tabset-fade .tabset-pills}
 
 We will look to the aggregated values per country (top 10 countries) for the same factors studied also for the top 10 universities,
-i.e. Teaching, International Outlook, Research, Citations, Industry Income and Overall (total_score).   
-Where the total score, international and income values are not set, we will consider them to be 0.
-This will affect the value of aggregated values; we will use this solution for the moment, until we will find
-a better approach.
+i.e. Teaching, International Outlook, Research, Citations, Industry Income and Overall (total_score).  
 
+Where the total score, international and income values are not set, we will consider them to be 0.    
+
+Where total score was not available and the other values are available, the total score was calculated using the formula described in the introduction.
 
 ```{r fig.width=10, fig.height=9,the_countries_boxplots,warning=FALSE}
-
-timesData$total_score = as.numeric(as.character(timesData$total_score))
-timesData$international = as.numeric(as.character(timesData$international))
-timesData$income = as.numeric(as.character(timesData$income))
-
-#replace with 0 the missing total_score values - this will affect the aggregated values
-timesData$total_score[is.na(timesData$total_score)] = 0
-timesData$international[is.na(timesData$international)] = 0
-timesData$income[is.na(timesData$income)] = 0
 
 timesData %>% group_by(country) %>% summarise(n = length(teaching)) %>% top_n(10,n) %>% ungroup() -> ct
 
@@ -844,7 +862,7 @@ We will use as value  for aggregation the total score.
 ```{r the_data_plotly_world}
 timesData$total_score = as.numeric(as.character(timesData$total_score))
 #replace with 0 the missing total_score values - this will affect the aggregated values
-timesData$total_score[is.na(timesData$total_score)] = 0
+
 timesHigherEducationCountryRankYear <- function(nYear) {
   
 
@@ -1009,14 +1027,6 @@ timesData %>% group_by(year) %>%
 
 top5univ <- rbind(theROData,top5univ)
 
-top5univ$total_score = as.numeric(as.character(top5univ$total_score))
-top5univ$teaching = as.numeric(as.character(top5univ$teaching))
-top5univ$international = as.numeric(as.character(top5univ$international))
-top5univ$research = as.numeric(as.character(top5univ$research))
-top5univ$citations = as.numeric(as.character(top5univ$citations))
-top5univ$income = as.numeric(as.character(top5univ$income))
-top5univ$income[is.na(top5univ$income)] = 0
-
 theTop5SpiderWebYear <- function(nYear) {
     top5univ %>% filter(year==nYear) %>% ungroup() -> top5u
     top5 <- as.data.frame(cbind(top5u[,c(3,4,5,6,7,8)]))
@@ -1130,14 +1140,6 @@ higher education institutions: here the female-male ratio is smaller).
 timesData %>% filter(country %in% c("Romania","Bulgaria", "Hungary", "Serbia", "Slovakia", "Slovenia")) %>% 
   select(year,university_name,total_score,teaching, international, research, citations, income) -> theEEData
 
-
-theEEData$total_score = 0#as.numeric(as.character(theEEData$total_score))
-theEEData$teaching = as.numeric(as.character(theEEData$teaching))
-theEEData$international = as.numeric(as.character(theEEData$international))
-theEEData$research = as.numeric(as.character(theEEData$research))
-theEEData$citations = as.numeric(as.character(theEEData$citations))
-theEEData$income = as.numeric(as.character(theEEData$income))
-theEEData$income[is.na(theEEData$income)] = 0
 
 theEESpiderWebYear <- function(nYear) {
     theEEData %>% filter(year==nYear) %>% ungroup() -> top5u
