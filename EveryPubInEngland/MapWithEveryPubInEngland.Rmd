@@ -14,16 +14,9 @@ output:
 ---
 
 ```{r include=FALSE}
-library(dplyr)
-library(raster)
-library(leaflet)
-library(rgdal)
-library(rgeos)
-library(deldir)
-library(stringr)
-library(ggplot2)
-library(tm)
-library(wordcloud)
+#use pacman for package management
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(dplyr, raster, leaflet, rgdal, rgeos, deldir, stringr, ggplot2, tm, wordcloud)
 ```
 
 # **Introduction**
@@ -609,8 +602,7 @@ names(area_df) <- c("area")
 
 
 We prepare to represent the polygons resulted from intersection of Voronoi polygons with the coastal lines for UK.
-A small error will appear on the Northern coast of Ireland, due to superposition of UK coastline for Northern Ireland
-with the Voronoi polygons of the W of England.
+A small error will appear on the Northern coast of Ireland, due to superposition of UK coastline for Northern Ireland with the Voronoi polygons of the W of England.
 
 ```{r map_pubs__local_authorities_leaflet4}
 intersect$area <- area_df$area
@@ -637,10 +629,9 @@ leaflet(data=intersect) %>%
 
 
 
-# **Feedback requested**
+# **Conclusions**
 
-Thank you for reading this Kernel. I would appreciate very much your comments and 
-suggestions. And, of course, if you like it, **upvote!**
+We investigated the data on pubs in England. We discovered that some of the pubs are missing geographical information (lat/lon) and we retrieved it from postal code. We represented the Voronoi polygons associated with the administrative regions of UK (excepting the Nothern Ireland) based on the average of the pubs position (lat/lon) in an administrative region. We then imported the coastal information for UK and intersected with the Voronoi polygons to clip the polygons to the coastal line. The Voronoi polygons color is proportional with the pubs density. Pubs density is calculated as the ratio between the numbers of pubs in a polygon and the polygon area. We then compared the distribution of population density from an UK map with the distribution of pubs densities. We can confirm that the pubs density distribution is a good approximation of the population density distribution.
 
 # **References**
 
