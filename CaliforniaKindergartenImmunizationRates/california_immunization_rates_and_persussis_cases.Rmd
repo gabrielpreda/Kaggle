@@ -24,21 +24,12 @@ The vaccination allows people to develop immunity to specific diseases. The immu
 
 
 ```{r setup, include=FALSE}
-library(dplyr)
-library(treemap)
-library(ggplot2)
-library(corrplot)
-library(gridExtra)
-library(grid)
-library(choroplethr)
-library(choroplethrMaps)
-library(tm)
-library(wordcloud)
-library(reshape2)
-library(leaflet)
-library(rgdal)
-library(deldir)
-library(plotly)
+
+#use pacman for package management
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(dplyr, treemap, ggplot2, choroplethr, corrplot,gridExtra,grid,tm,wordcloud,
+               reshape2,leaflet,rgdal,rgeos,deldir,plotly)
+
 data("county.regions")
 ```
 
@@ -66,10 +57,10 @@ The dataset has 4 files, as following:
 
 
 ```{r read_data}
-studentData <- read.csv("../input/StudentData.csv")
-geoData <- read.csv("../input/geoData.csv")
-pertusisRates <- read.csv("../input/pertusisRates2010_2015.csv")
-infantData <- read.csv("../input/InfantData.csv")
+studentData <- read.csv("../input/california-kindergarten-immunization-rates/StudentData.csv")
+geoData <- read.csv("../input/california-kindergarten-immunization-rates/geoData.csv")
+pertusisRates <- read.csv("../input/california-kindergarten-immunization-rates/pertusisRates2010_2015.csv")
+infantData <- read.csv("../input/california-kindergarten-immunization-rates/InfantData.csv")
 ```
 
 # Summary of the data{.tabset .tabset-fade .tabset-pills}
@@ -1393,12 +1384,20 @@ library(raster)
 shape <- shapefile("../input/gadm-data-for-ca/CA_State_TIGER2016.shp")
 ```  
 
+Let's check the shape of the border for California.
+
+```{r plot_map_california_shape_borders}
+plot(shape)
+```
+
+We convert the shapefile data in Spatial Polgons data. Then we intersect this data with Voronoi polygons data calculated before.
+
 
 
 ```{r map_california_spatial_polygons_transform}
-uk.poly <- as(shape, "SpatialPolygons")
+ca.poly <- as(shape, "SpatialPolygons")
 vor.poly <- voronoiPolygons
-intersect  <- gIntersection(vor.poly, uk.poly, byid = T)
+intersect  <- gIntersection(vor.poly, ca.poly, byid = F)
 ```
 
 
