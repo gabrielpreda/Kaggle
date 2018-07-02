@@ -389,12 +389,8 @@ We notice that some of the smallest areas contains also some of the larger numbe
 
 # **Conclusion**
 
-We were able to draw the areas corresponding to the Starbucks and to the pubs in London area. For this purpose we used the Voronoi polygons diagram associated with the vertices with the coordinates of Starbucks and pubs, respectively.  We were able to identify the pubs in each Starbucks area and to calculate the density of plots in such an area.
+We were able to draw the areas corresponding to the Starbucks and to the pubs in London area. For this purpose we used the Voronoi polygons diagram associated with the vertices with the coordinates of Starbucks and pubs, respectively.  We were able to identify the pubs in each Starbucks area and to calculate the density of pubs in such an area.
 
-# **Feedback**
-
-If you enjoyed your beer or coffee experience, please give me your suggestions for further improvement of this Kernel. 
-And, of course, *upvote* it!
 
 
 # **References**
