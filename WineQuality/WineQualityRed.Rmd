@@ -49,7 +49,7 @@ We include the R libraries used for data input, processing, analysis and visuali
 ```{r libraries_and_packages_management,message=FALSE,warning=FALSE}
 #use pacman for package management
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally)
+pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally, caret)
 
 options(knitr.table.format = "html") 
 ```
@@ -100,6 +100,8 @@ The features that characterize the red wine are related to acidity (fixed.acidit
 # **Data exploration**
 
 
+## Features pairs - combined plot
+
 Let's start by plotting pairs of data using the **GGally** package. This allows us to show on the same graph:  
 
 * the pairs of each features;   
@@ -136,6 +138,7 @@ We can observe the following, for each feature:
 
 Let's visualize pairs of these features with regression curves as well, using facting with ggplot2.  
 
+## Features pairs - regression curves
 
 ```{r fig.width=16, fig.height=16, ggplot2_pairs}
 
@@ -183,6 +186,42 @@ wine_df1 %>%
       scale_color_brewer(type = 'qual')
   }
 ```
+
+
+
+
+
+## Features box plots grouped by quality
+
+Let's show only the box plots for each feature, grouped by quality.
+
+
+```{r fig.width=12, fig.height=12, featurePlot2}
+featurePlot(x = wine_df1[, 1:11], 
+            y = wine_df1$quality, plot = "box", 
+            scales = list(x = list(relation="free"), y = list(relation="free")), 
+            adjust = 1.5, pch = ".", 
+            layout = c(4, 3), auto.key = list(columns = 3))
+
+```
+
+## Features density plots grouped by quality
+
+Let's show only the densityplots for each feature, grouped by quality.
+
+
+```{r fig.width=12, fig.height=12, featurePlot1}
+featurePlot(x = wine_df1[, 1:11], 
+            y = wine_df1$quality, plot = "density", 
+            scales = list(x = list(relation="free"), y = list(relation="free")), 
+            adjust = 1.5, pch = ".", 
+            layout = c(4, 3), auto.key = list(columns = 3))
+
+```
+
+
+Citric acid, alcohol, volatile acidity seems to be good discriminants for the quality, from the inspection of the density plots.
+
 
 # **Conclusions**
 
