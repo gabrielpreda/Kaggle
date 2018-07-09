@@ -1,0 +1,141 @@
+---
+title: "Red Wine Quality Simple EDA"
+author: "Gabriel Preda"
+date: "Created: 2018-07-09; Last updated:`r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+# **Introduction** 
+
+
+![Red Wine Quality](https://kaggle2.blob.core.windows.net/datasets-images/4458/6836/30587db9a40233164f65a4a3f148f40d/dataset-card.jpg?t=2017-11-12-14-28-34)
+
+This datasets is related to red variants of the Portuguese “Vinho Verde” wine.
+Due to privacy and logistic issues, only physicochemical (inputs) and sensory (the output) variables are available (e.g. there is no data about grape types, wine brand, wine selling price, etc.).
+
+The input features are as follows:  
+
+* `fixed acidity` - most acids involved with wine or fixed or nonvolatile (do not evaporate readily);
+* `volatile acidity` - the amount of acetic acid in wine, which at too high of levels can lead to an unpleasant, vinegar taste;  
+* `citric acid` - found in small quantities, citric acid can add 'freshness' and flavor to wines;  
+* `residual sugar` - the amount of sugar remaining after fermentation stops, it's rare to find wines with less than 1 gram/liter and wines with greater than 45 grams/liter are considered sweet;  
+* `chlorides` - the amount of salt in the wine;  
+* `free sulfur dioxide` - the free form of SO2 exists in equilibrium between molecular SO2 (as a dissolved gas) and bisulfite ion; it prevents microbial growth and the oxidation of wine;  
+* `total sulfur dioxide` - amount of free and bound forms of S02; in low concentrations, SO2 is mostly undetectable in wine, but at free SO2 concentrations over 50 ppm, SO2 becomes evident in the nose and taste of wine;  
+* `density` - the density of water is close to that of water depending on the percent alcohol and sugar content;  
+* `pH` - describes how acidic or basic a wine is on a scale from 0 (very acidic) to 14 (very basic); most wines are between 3-4 on the pH scale;  
+* `sulphates` - a wine additive which can contribute to sulfur dioxide gas (S02) levels, wich acts as an antimicrobial and antioxidant
+* `alcohol` - the percent alcohol content of the wine;
+
+The output feature is:  
+
+* `quality` - output variable (based on sensory data, score between 0 and 10);
+
+
+# **Read the data**
+
+
+We include the R libraries used for data input, processing, analysis and visualization. We are using pacman for library management.
+
+
+```{r libraries_and_packages_management,message=FALSE,warning=FALSE}
+#use pacman for package management
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally)
+
+options(knitr.table.format = "html") 
+```
+
+
+We read the data.
+
+```{r read_data,message=FALSE,warning=FALSE}
+PATH="../input/winequality-red/"
+#PATH="../input/"
+
+
+wine_df <- read.csv(paste(PATH,"winequality-red.csv",sep=""))
+
+```
+
+
+
+# **Glimpse the data**
+
+
+We start by showing first 10 rows from the dataset.
+
+```{r glimpse_winequality_red_data}
+kable(head(wine_df,10), "html") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+
+Let's apply also `glimpse`.
+
+```{r glimpse_winequality_red_data_1}
+glimpse(wine_df)
+```
+
+
+Let's see also a summary of the data.
+
+
+```{r glimpse_winequality_red_data_2}
+summary(wine_df)
+```
+
+
+The features that characterize the red wine are related to acidity (fixed.acidity, volatile.acidity, citric.acid, pH), sugar (residual.sugar), content of sulfur dioxide which is the substance that  (free.sulfur.dioxide, total.sulfur.dioxide)
+
+# **Data exploration**
+
+
+Let's start by plotting pairs of data using the **GGally** package. This allows us to show on the same graph:  
+
+* the pairs of each features;   
+* the boxplot for each feature, 
+* the density plots of each feature;  
+* the histograms for each feature.  
+
+All these graphs are showing the values grouped by **target** value, i.e. by **quality**.
+
+```{r fig.width=16, fig.height=16, ggpairs_1}
+library(GGally)
+
+wine_df1 <- wine_df
+wine_df1$quality <- as.factor(wine_df1$quality)
+
+
+ggpairs(wine_df1, aes(colour = quality, alpha = 0.4))
+```
+
+We can observe the following, for each feature:  
+
+* `fixed acidity` - besides the smallest quality (3), mean value and variance increases with quality;
+* `volatile acidity` - smaller means and smaller variance results in increasing quality;  
+* `citric acid` - quality increases with the mean value;  
+* `residual sugar` - highest quality has small mean, variance and less outliers;  
+* `chlorides` - highest quality has smaller mean, variance and less outliers;    
+* `free sulfur dioxide` - smaller mean and variance are for both small (3) and high quality (8);  
+* `total sulfur dioxide` - smaller mean and variance are for both small (3) and high quality (8);    
+* `density` - smaller mean, larger variance for higher quality;  
+* `pH` - smaller values for higher quality;  
+* `sulphates` - higher mean, smaller variance, less outliersfor higher quality;  
+* `alcohol` - higher mean values, larger variance, less outliers for higher quality;  
+
+
+# **Conclusions**
+
+Preliminary data analysis shows that some of the features could be good predictors for quality, especially combining them. We will continue to update this Kernel to investigate efficiency of several models to predict red wine quality. 
+
+
