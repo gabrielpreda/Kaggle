@@ -27,8 +27,6 @@ options(knitr.table.format = "html")
 
 
 
-
-
 # **Introduction**
 
 
@@ -67,6 +65,7 @@ effective
 
 
 ```{r matching_names}
+
 # Matching names using: https://www.r-bloggers.com/fuzzy-string-matching-a-survival-skill-to-tackle-unstructured-information/
 #match using Levenshtein distance between the compared strings 
 matchingNames <- function(source1, source2) {
@@ -115,9 +114,13 @@ SIRUES codes are  used to uniquely identify the schools.
 
 
 ```{r read_pupils_info}
+PATH="../input/elementary-school-admission-romania-2014/"
+#PATH="../input/"
+
+
 #read data about pupils registering in 1st grade in 2014
 #the data contains SIRUES code (unique for each school) - we will use this code to merge pupil's data with schools data
-raw.data <- read.csv("../input/elementary_school_registration_2014.csv")
+raw.data <- read.csv(paste(PATH,"elementary_school_registration_2014.csv",sep=""))
 #perform some data cleansing, reducing some irrelevant columns and renaming columns for clarity
 # 'SIRUES' is an unique code attributed to each school
 pupils<-cbind(raw.data[,c(2,3,5,7,8,9,10,11,12,13,14)])
@@ -143,7 +146,7 @@ and the school category.
 ```{r read_schools_data}
 #read data about schools
 #'judet' is an administrative unit in Romania, like 'county' in US
-raw.SIRUES <- read.csv("../input/school_network.csv")
+raw.SIRUES <- read.csv(paste(PATH,"school_network.csv",sep=""))
 #perform some data cleansing, reducing some irrelevant columns and renaming columns for clarity
 schools<-cbind(raw.SIRUES[,c(2,3,4,6,7)])
 column.names.schools<-c("judet","name","SIRUES","school_type","school_category")
@@ -559,9 +562,9 @@ to extract the census data.  We read both geojson files.
 
 ```{r geojson_data}
 #geoJSON used for rendering, has lower number of points
-rgeojson <- readOGR("../input/romania.geojson", layer="OGRGeoJSON")
+rgeojson <- readOGR(paste(PATH,"romania.geojson",sep=""), layer="OGRGeoJSON")
 #geoJSON used for retrieving population information from census
-geojson <- readLines("../input/ro_judete_poligon.geojson", warn = FALSE, encoding = "UTF-8") %>%
+geojson <- readLines(paste(PATH,"ro_judete_poligon.geojson",sep=""), warn = FALSE, encoding = "UTF-8") %>%
   paste(collapse = "\n") %>%
   fromJSON(simplifyVector = FALSE)
 ```
