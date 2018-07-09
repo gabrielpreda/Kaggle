@@ -134,8 +134,65 @@ We can observe the following, for each feature:
 * `alcohol` - higher mean values, larger variance, less outliers for higher quality;  
 
 
+Let's visualize pairs of these features with regression curves as well, using facting with ggplot2.  
+
+
+```{r fig.width=16, fig.height=16, ggplot2_pairs}
+
+require(ggplot2) 
+require(dplyr)
+require(tidyr)
+
+gatherpairs <- function(data, ..., 
+                        xkey = '.xkey', xvalue = '.xvalue',
+                        ykey = '.ykey', yvalue = '.yvalue',
+                        na.rm = FALSE, convert = FALSE, factor_key = FALSE) {
+  vars <- quos(...)
+  xkey <- enquo(xkey)
+  xvalue <- enquo(xvalue)
+  ykey <- enquo(ykey)
+  yvalue <- enquo(yvalue)
+
+  data %>% {
+    cbind(gather(., key = !!xkey, value = !!xvalue, !!!vars,
+                 na.rm = na.rm, convert = convert, factor_key = factor_key),
+          select(., !!!vars)) 
+  } %>% gather(., key = !!ykey, value = !!yvalue, !!!vars,
+               na.rm = na.rm, convert = convert, factor_key = factor_key)
+}
+
+wine_df1 %>% 
+  gatherpairs(fixed.acidity, volatile.acidity, citric.acid, residual.sugar,chlorides) %>% {
+  ggplot(., aes(x = .xvalue, y = .yvalue, color = quality)) +
+      geom_point() + theme_bw() + 
+      geom_smooth(method = 'lm') +
+      facet_wrap(.xkey ~ .ykey, ncol = length(unique(.$.ykey)), scales = 'free', labeller = label_both) +
+      scale_color_brewer(type = 'qual')
+}
+
+```
+
+
+```{r fig.width=16, fig.height=16, ggplot2_pairs2}
+wine_df1 %>% 
+  gatherpairs(free.sulfur.dioxide, total.sulfur.dioxide, density, pH, sulphates, alcohol) %>% {
+  ggplot(., aes(x = .xvalue, y = .yvalue, color = quality)) +
+      geom_point() + theme_bw() + 
+      geom_smooth(method = 'lm') +
+      facet_wrap(.xkey ~ .ykey, ncol = length(unique(.$.ykey)), scales = 'free', labeller = label_both) +
+      scale_color_brewer(type = 'qual')
+  }
+```
+
 # **Conclusions**
 
 Preliminary data analysis shows that some of the features could be good predictors for quality, especially combining them. We will continue to update this Kernel to investigate efficiency of several models to predict red wine quality. 
+
+
+# **References**
+
+
+[1] Create a matrix of scatterplots (pairs() equivalent) in ggplot2, https://stackoverflow.com/questions/3735286/create-a-matrix-of-scatterplots-pairs-equivalent-in-ggplot2  
+[2] GGally R package: Extension to ggplot2 for correlation matrix and survival plots - R software and data visualization, http://www.sthda.com/english/wiki/ggally-r-package-extension-to-ggplot2-for-correlation-matrix-and-survival-plots-r-software-and-data-visualization  
 
 
