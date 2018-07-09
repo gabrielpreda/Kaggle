@@ -1,0 +1,777 @@
+---
+title: Analysis of admission in elementary school in 2014 in Romania
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+library(jsonlite)
+library(rgdal)
+library(tidyr)
+library(leaflet)
+require(plotrix)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+options(knitr.table.format = "html") 
+```
+
+
+
+
+
+# **Introduction**
+
+
+
+
+
+In a previously developed [Kernel](https://www.kaggle.com/gpreda/esar-2014-exploratory-analysis), 
+we explored the data in the pupils file, focusing on migration from rural to urban areas,
+type of education, how the disabled pupils have access in rural and urban area to other
+educational options than the main-stream, traditional education system and also relationship
+between ethnic apartenence, disabled status and orphan or institutionalized status for the
+pupils registered in our data file.  
+
+
+
+
+In this Kernel we will use the data in pupils, schools and 2 geolocation files to represent on a *leaflet* 
+map the percent of population (values from last census of 2011) that registered as pupils
+in 1st class in elementary school in 2014. To calculate this percent, we will merge all 
+4 sources of data, using as join factors the SIRUES code (for join between pupils data
+and schools data) and the county name (for join between the schools+pupils data 
+and geojeson data and between the two geojson data). As the county names are written 
+differently in the 3 data files, we will use a function for matching the county names with
+fuzzy match based on Levenshtein distance between the compared strings. 
+
+
+
+# **Function matchingNames**
+
+
+
+The function 'matchingNames' is used to do fuzzy matching between Romanian counties names from
+data files where diferent encoding or writing of these names makes simple matching not 
+effective
+
+
+
+```{r matching_names}
+# Matching names using: https://www.r-bloggers.com/fuzzy-string-matching-a-survival-skill-to-tackle-unstructured-information/
+#match using Levenshtein distance between the compared strings 
+matchingNames <- function(source1, source2) {
+  # To make sure we are dealing with characters
+  source1<-as.character(source1)
+  source2<-as.character(source2)
+
+  # It creates a matrix with the Standard Levenshtein distance between the name fields of both sources
+  dist.name<-adist(source1,source2, partial = FALSE, ignore.case = FALSE)
+  # We now take the pairs with the minimum distance
+  min.name<-apply(dist.name, 1, min)
+
+  match.s1.s2<-NULL  
+  for(i in 1:nrow(dist.name))
+  {
+    s2.i<-match(min.name[i],dist.name[i,])
+    s1.i<-i
+    match.s1.s2<-rbind(data.frame(s2.i=s2.i,s1.i=s1.i,
+                                  s2name=source2[s2.i], s1name=source1[s1.i], 
+                                  adist=min.name[i]),match.s1.s2)
+  }
+
+  
+  mapi<-c(1:nrow(dist.name))
+  for(j in 1:nrow(dist.name))
+  {
+    mapi[match.s1.s2$s1.i[j]] = match.s1.s2$s2.i[j]
+  }
+  return(mapi)
+}
+```
+
+
+
+# **Read pupils data**
+
+
+
+From the pupils data we extract only a part of the columns, including sex, pupils environment (rural
+or urban), ethnicity (in Romania there are multiple ethnic groups, with most notable besides Romanian
+the Hungarian minorities, the Rroma (Gipsies), German, Ucrainian ...), educational alternative
+(beside traditional, special education, Waldorf, Step-by-step ...), teaching language, SIRUES code, 
+school environment (either rural or urban), handicap (if the pupils registered has a certain permanent
+health condition), orphan or institutionalized pupils flag, single parent flag.
+SIRUES codes are  used to uniquely identify the schools.
+
+
+```{r read_pupils_info}
+#read data about pupils registering in 1st grade in 2014
+#the data contains SIRUES code (unique for each school) - we will use this code to merge pupil's data with schools data
+raw.data <- read.csv("../input/elementary_school_registration_2014.csv")
+#perform some data cleansing, reducing some irrelevant columns and renaming columns for clarity
+# 'SIRUES' is an unique code attributed to each school
+pupils<-cbind(raw.data[,c(2,3,5,7,8,9,10,11,12,13,14)])
+column.names.pupils<-c("sex","origin_env","ethnic","admission_stage","educational_alternative","teaching_language","SIRUES",
+                       "school_env","disabled","orphan","single_parent")
+colnames(pupils)<-column.names.pupils
+```
+
+
+
+
+
+# **Read schools data**
+
+
+
+From the schools data we keep only few dimmensions: the county (`judet`) name, the SIRUES code 
+(this code will be used to match the information from pupils data file), the school type 
+and the school category.
+
+
+
+```{r read_schools_data}
+#read data about schools
+#'judet' is an administrative unit in Romania, like 'county' in US
+raw.SIRUES <- read.csv("../input/school_network.csv")
+#perform some data cleansing, reducing some irrelevant columns and renaming columns for clarity
+schools<-cbind(raw.SIRUES[,c(2,3,4,6,7)])
+column.names.schools<-c("judet","name","SIRUES","school_type","school_category")
+colnames(schools)<-column.names.schools
+```
+
+
+
+
+
+# **Merge pupils and school information**
+
+
+
+Merging the pupils information with school information is done using the SIRUES code.
+
+
+```{r merge_pupils_schools}
+#merge schools and pupils data on SIRUES common code
+pupils.schools <- merge(pupils, schools, by="SIRUES")
+```
+
+
+After merging, the data with pupils and school information is kept in `pupils.schools` data frame.
+
+
+## Teaching language
+
+
+
+Let's see what is the teaching language for each ethnic group.
+
+
+
+```{r ethnic_language}
+pupils %>% 
+  group_by(ethnic, teaching_language) %>% summarise(nums=length(SIRUES)) %>% ungroup() %>%
+    complete(ethnic, teaching_language, fill = list(nums = 0)) -> ethnic_language
+
+ethnic_language %>%
+  group_by(ethnic) %>%
+  mutate(all = sum(nums),  perc = round(100 * nums/all, 2)) -> ethnic_language
+
+ggplot(ethnic_language, aes(teaching_language, ethnic)) + geom_tile(aes(fill = perc),
+      colour = "white") + scale_fill_gradient(low = "lightblue", high = "blue",name = "Percent\nusage") + 
+      theme_grey() + labs(x = "", y = "") + 
+      labs(title="Language used by each ethnic group", subtitle="Percent of usage for language is shown per ethnic group") +
+      scale_x_discrete(expand = c(0, 0)) +  scale_y_discrete(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks = NULL)
+```
+
+
+
+## Pupil environment (rural vs. urban) per county
+
+
+
+Let's see what is the percent of rural/urban 1st grade pupils (origin) population per each county.
+
+
+
+```{r fig.width=12, fig.height=5,pupil_env_rural_urban_population_per_county}
+pupils.schools %>% 
+
+  group_by(judet, origin_env) %>% summarise(nums=length(SIRUES)) %>% ungroup() %>%
+    complete(judet, origin_env, fill = list(nums = 0)) -> county_environment
+
+county_environment %>%
+  group_by(judet) %>%
+  mutate(all = sum(nums),  perc = round(100 * nums/all, 2)) -> county_env
+
+ggplot(county_env, aes(judet, origin_env)) + geom_tile(aes(fill = perc),
+      colour = "white") + scale_fill_gradient(low = "lightgreen", high = "darkblue",name = "Percent") + 
+      theme_grey() + labs(x = "County", y = "Pupil environment: Rural(R) Urban (U)") +  
+      labs(title="Pupil environment for each county", subtitle="Percent of pupil environment for each county (rural/urban)") +
+      scale_x_discrete(expand = c(0, 0)) +  scale_y_discrete(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks = NULL)
+```
+
+
+
+## School environment (rural vs. urban) per county
+
+
+
+Let's see what is the percent of rural/urban 1st grade places in schools per each county.
+
+
+
+```{r fig.width=12, fig.height=5,school_env_rural_urban_population_per_county}
+pupils.schools %>% 
+
+  group_by(judet, school_env) %>% summarise(nums=length(SIRUES)) %>% ungroup() %>%
+    complete(judet, school_env, fill = list(nums = 0)) -> county_sch_environment
+    
+county_sch_environment %>%
+  group_by(judet) %>%
+
+  mutate(all = sum(nums),  perc = round(100 * nums/all, 2)) -> county_sch_env
+
+ggplot(county_sch_env, aes(judet, school_env)) + geom_tile(aes(fill = perc),
+      colour = "white") + scale_fill_gradient(low = "lightgreen", high = "darkblue",name = "Percent") + 
+      theme_grey() + labs(x = "County", y = "School environment: Rural(R) Urban (U)") + 
+      labs(title="School environment for each county", subtitle="Percent of school environment for each county (rural/urban)") +
+      scale_x_discrete(expand = c(0, 0)) +  scale_y_discrete(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks = NULL)
+```
+
+
+
+## Ethnic distribution per county
+
+
+
+Let's see what is the ethnic distribution per county.
+
+
+
+```{r fig.width=12, fig.height=8,ethnic_distribution_per_county}
+pupils.schools %>% 
+  group_by(judet,ethnic) %>% summarise(nums=length(SIRUES)) %>% ungroup() %>%
+    complete(judet, ethnic,  fill = list(nums = 0)) -> ethnic_county
+
+ethnic_county %>%
+  group_by(judet) %>%
+  mutate(all = sum(nums),  perc = round(100 * nums/all, 2)) -> ethnic_p_county
+
+
+ggplot(ethnic_p_county, aes(judet,ethnic)) + geom_tile(aes(fill = perc),
+      colour = "white") + scale_fill_gradient(low = "lightgreen", high = "darkblue",name = "Percent") + 
+      theme_grey() + labs(x = "County", y = "Ethnic group") + 
+      labs(title="Ethnic pupils population per each county", subtitle="Percent of ethnic pupils population per county") +
+      scale_x_discrete(expand = c(0, 0)) +  scale_y_discrete(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks = NULL)
+```
+
+
+
+## School category per county
+
+
+
+Let's see what is the school category distribution per county.
+
+
+
+```{r fig.width=12, fig.height=8,school_category_distribution_per_county}
+
+pupils.schools %>% 
+
+  group_by(judet,school_category) %>% summarise(nums=length(SIRUES)) %>% ungroup() %>%
+    complete(judet, school_category,  fill = list(nums = 0)) -> school_category_county
+
+school_category_county %>%
+  group_by(judet) %>%
+  mutate(all = sum(nums),  perc = round(100 * nums/all, 2)) -> school_p_category_county
+
+
+ggplot(school_p_category_county, aes(judet,school_category)) + geom_tile(aes(fill = perc),
+      colour = "white") + scale_fill_gradient(low = "yellow", high = "darkgreen",name = "Percent") + 
+      theme_grey() + labs(x = "County", y = "School category") + 
+      labs(title="School category per each county", subtitle="Percent of school category (by number of registeres pupils) per county") +
+      scale_x_discrete(expand = c(0, 0)) +  scale_y_discrete(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks = NULL)
+```  
+
+
+
+Most of the schools, in all counties are `Gimnasium`, i.e. a school with both elementary school and junior high role.
+
+In counties with relative large urban population, there is a considerable percent of `Liceu` i.e. highschools, some of 
+
+them including junior-high as well. In `Hunedoara` county, there are almost equal number of `Colegiu` (College) and 
+
+`Gimnasium`. 
+
+
+
+
+
+## Educational alternative for disabled pupils  
+
+
+
+We would like to see how different are the educational alternatives for disabled pupils from Rural and Urban areas.
+
+
+
+### Education alternative vs. origin environment  
+
+
+
+Let’s start with the plot of education alternative vs. origin environment (rural or urban). 
+
+
+
+```{r fig.width=6, fig.height=4,education_alternative_vs_origin_env}
+pupils %>% filter(disabled == "DA") %>% ungroup() -> pupilsDisabled
+
+qplot(pupilsDisabled$origin_env,fill=pupilsDisabled$educational_alternative) +
+theme_bw() + 
+labs(title="Education alternative for disabled pupils vs. origin environment", 
+     x="Origin of disabled pupils (R=Rural, U=Urban)", y="Pupils number") + 
+scale_fill_discrete(name = "Educational\nalternative")
+```
+
+
+
+Disabled pupils from Rural areas are less likely to access an alternative education, compared with pupils from Urban areas. 
+
+If they will follow an alternative education path, they will most probably join the Special education system, which provide
+
+some support for them but still applies some traditional education approach (**Invatamant special** stands for **Special education**). 
+
+For children in Urban areas, the percent of them following alternative education (not the **Traditional**) is larger and also 
+
+they will have access to diferent educational systems, like **Currative education**, **Step by step**, **Waldorf**, **Freinet**.
+
+
+
+
+
+### Education alternative vs. school environment  
+
+
+
+The following graph is showing the school environment for the disabled pupils (Rural or Urban).
+
+
+
+
+
+```{r fig.width=6, fig.height=4,education_alternative_vs_school_env}
+qplot(pupilsDisabled$school_env,fill=pupilsDisabled$educational_alternative) +  theme_bw() + 
+labs(title="Education alternative for disabled pupils vs. school environment", x="School of disabled pupils (R=Rural, U=Urban)", y="Pupils number") + 
+scale_fill_discrete(name = "Educational\nalternative")
+```  
+
+
+
+We can see that in the Rural areas there are zero non-traditional educational alternatives. This will also mean that the disabled 
+
+pupils from country side will have to travel to the cities in order to get access to non-traditional educational alternatives.
+
+
+
+### Focusing only on non-traditional education alternative  
+
+
+
+
+
+We focus only on non-traditional education alternative, to see how the disabled pupils have access to such educational alternatives in countryside and city areas.
+
+
+
+#### Education alternative vs. origin environment  
+
+
+
+Let’s look to the education alternative used by pupils with handicap from Rural and Urban areas.
+
+
+
+
+
+```{r fig.width=6, fig.height=4,education_alternative_nt_vs_origin_env}
+pupils %>% filter(disabled == "DA", educational_alternative != "Tradi?ional?") %>% ungroup() -> pupilsDisabledNT
+qplot(pupilsDisabledNT$origin_env,fill=pupilsDisabledNT$educational_alternative) +  theme_bw() + 
+labs(title="Education alternative for disabled pupils vs. origin environment",
+ subtitle="Non traditional options only", x="Origin of disabled pupils (R=Rural, U=Urban)", y="Pupils number") + 
+scale_fill_discrete(name = "Educational\nalternative")
+```  
+
+
+
+If we remove the **Traditional** education alternative, we can see easier that pupils from country side attend only 
+
+**Step by step** (few of them) and **Special education** options.
+
+
+
+#### Education alternative vs. school environment  
+
+
+
+Let’s look now to the education alternative available in the Rural and Urban areas.
+
+
+
+
+
+```{r fig.width=6, fig.height=4,education_alternative_nt_vs_school_env}
+pupils %>% filter(disabled == "DA", educational_alternative != "Tradi?ional?") %>% ungroup() -> pupilsDisabledNT
+qplot(pupilsDisabledNT$school_env,fill=pupilsDisabledNT$educational_alternative) +  theme_bw() + 
+labs(title="Education alternative for disabled pupils vs. school environment",
+  subtitle="Non traditional options only", x="School of disabled pupils (R=Rural, U=Urban)", y="Pupils number") + 
+scale_fill_discrete(name = "Educational\nalternative")
+```  
+
+
+
+Looking now to the schools environment (rural or urban), we see that in country side only Step by step option is available, 
+
+and for a very small number of pupils, apart of the Traditional option. 
+
+The majority of disabled pupils from country side will have to go to an urban area to attend first class in a non-traditional school.
+
+
+
+
+
+## Disabled kids that are orphaned or institutionalized  
+
+
+
+We will focus now on the disabled kids that are orphaned or institutionalized.
+
+
+
+### Rural vs. urban  
+
+
+
+First, we would like to look side by side for rural and urban environment.
+
+
+
+```{r fig.width=6, fig.height=4,disabled_kids_institutionalized}
+pupils %>% filter(disabled == "DA") %>% ungroup() -> pupilsDisabledOrphaned
+qplot(pupilsDisabledOrphaned$origin_env,fill=pupilsDisabledOrphaned$orphan) +  theme_bw() + 
+labs(title="Disabled pupils - comparison of origin and family status", x="Origin of disabled pupils (R=Rural, U=Urban)", y="Pupils number") + 
+scale_fill_discrete(name  ="Is orphan", breaks=c("", "DA"), labels=c("NO", "YES"))
+```  
+
+
+
+One thing that we notice is that for the disabled pupils, a significant percent are as well orphan or institutionalized. 
+
+Looking also to environment, we see that while there is significantly less disabled pupils in rural areas than in urban 
+
+areas (compared with the whole population status), there are also more rural pupils (as total and percent) than urban pupils.
+
+
+
+
+
+### Nationality of disabled pupils orpahned or instututionalized   
+
+
+
+
+
+```{r fig.width=6, fig.height=4,disabled_kids_institutionalized_nationality}
+pupils %>% filter(disabled == "DA") %>% ungroup() -> pupilsDisabledOrphaned
+qplot(pupilsDisabledOrphaned$ethnic,fill=pupilsDisabledOrphaned$orphan) +  theme_bw() + 
+labs(title="Disabled pupils - comparison of ethnic groups and family status", x="Ethnic group of disabled pupils", y="Pupils number") + 
+scale_fill_discrete(name  ="Is orphan", breaks=c("", "DA"), labels=c("NO", "YES"))
+```  
+
+
+
+Comparing now the disabled pupils based on nationality, we also see an unbalance, compared with the whole population status. 
+
+The **Rroma** ethnic group shows a very large percent of institutionalized or orphan disabled pupils, while percents of 
+
+institutionalized or orphan disabled pupils is significantly large as well in **Hungarian** and still very large in **Romanian**
+
+ethnic  group. There are no other ethnic groups with registered disabled orhpans or institutionalized pupils.  
+
+
+
+### Gender of disabled pupils orpahned or instututionalized  
+
+
+
+```{r fig.width=6, fig.height=4,disabled_kids_institutionalized_gender}
+pupils %>% filter(disabled == "DA") %>% ungroup() -> pupilsDisabledOrphaned
+qplot(pupilsDisabledOrphaned$sex,fill=pupilsDisabledOrphaned$orphan) +  theme_bw() + 
+labs(title="Disabled pupils - comparison of gender and family status", x="Gender of disabled pupils", y="Pupils number") + 
+scale_fill_discrete(name  ="Is orphan", breaks=c("", "DA"), labels=c("NO", "YES"))
+```
+
+
+
+We also observe a large inbalance of genders of disabled pupils. There are much more disabled boys than girls. 
+
+As for institutionalized or orphans, we can see that as a percent, disabled girls are more frequently orphan or 
+
+institutionalized (although in absolute numbers are less).  
+
+
+
+
+
+
+
+# **Read geojson information**
+
+
+
+There are two geojson data files; the first is used for rendering; the second is used
+
+for extracting the census information. While the first has a reduced number of points
+
+and in the same tme the counties boundaries are represented with a good-enough accuracy for our 
+
+purpose, the second file have a too large number of contour points and will be used just
+
+to extract the census data.  We read both geojson files.
+
+
+
+```{r geojson_data}
+#geoJSON used for rendering, has lower number of points
+rgeojson <- readOGR("../input/romania.geojson", layer="OGRGeoJSON")
+#geoJSON used for retrieving population information from census
+geojson <- readLines("../input/ro_judete_poligon.geojson", warn = FALSE, encoding = "UTF-8") %>%
+  paste(collapse = "\n") %>%
+  fromJSON(simplifyVector = FALSE)
+```
+
+
+
+The geojson for rendering is stored in `rgeojson` and the geojson with the census data is stored
+
+in `geojson`.
+
+
+
+## List with census information
+
+
+
+We create a list with census information for all census years, with information for 
+
+every county ('judet'). We then extract the population for last census (2011). This
+
+will be used to calculate the percent from each county population that is registered
+
+in 2014 for 1st year in elementary school.
+
+
+
+```{r census_population}
+# Gather population for all counties ('judet')
+poplist <- lapply(geojson$features, function(feat) {
+  c(as.character(feat$properties$name),as.integer(feat$properties$pop1948),as.integer(feat$properties$pop1956),as.integer(feat$properties$pop1977), as.integer(feat$properties$pop1992), as.integer(feat$properties$pop2002),as.integer(feat$properties$pop2011))
+
+})
+census.years<-c("1948", "1956","1977", "1992", "2001", "2011")
+pop <- matrix(unlist(poplist), nrow = 42, ncol = 7, byrow = TRUE)
+colnames(pop) <- c("judet",census.years)
+population2011 <- pop[,c(1,7)]
+```
+
+
+
+
+
+## Join the pupils and schools data with geojson data
+
+
+
+We join the data from pupils and schools with the geojson data using a fuzzy match
+
+with *matchingNames function*. Join column is the `county` (**judet**) name. As the name is not 
+
+standardized (in one version diacritics are used, while in other not, some versions 
+
+uses hyphen while others not) only the fuzzy match allows a fully-automated processing
+
+of the data.
+
+
+
+```{r fuzzy_match_for_join}
+#get pupils registered per each county
+pupils_registered_per_county <- plyr::count(pupils.schools, "judet")
+#match the counties with 'judet' (ordering as in the geojson)
+pupilsCounty <- pupils_registered_per_county[matchingNames(rgeojson$name,as.character(pupils_registered_per_county$judet)),]
+populationCounty <-population2011[matchingNames(rgeojson$name,as.character(population2011[,1])),]
+```
+
+
+
+## Percent of population registered for 1st grade elementary school
+
+
+
+The percent of the population registered for 1st grade elementary school in 2014 is
+
+approximated, from pupils data and census data, as the report of number of pupils
+
+registered per county in 2014 and last population estimate during the census of 2011. 
+
+All the pupils registering in 2014 were already born in 2011.
+
+
+
+```{r prepare_percent}
+percentPupilsCounty <- pupilsCounty$freq / as.integer(populationCounty[,2])
+# Color by number of pupils admited
+displayPercent = round(percentPupilsCounty * 100,2)
+pal <- colorBin("Greens", displayPercent, bins = 8, na.color = "Red")
+```
+
+
+
+# **Interactive maps**
+
+
+## Map with percent of population registered for 1st grade elementary school
+
+
+The interactive map shows each county with:
+
+* the number of pupils registering 1st grade in 2014
+* the population in 2011
+* percentage of pupils in 1st grade (2014) from the total population (2011 census)
+
+ 
+
+
+Hint: <font color="green"><b>click on the map</b></font> to see detailed information on each county.  
+
+
+
+```{r percent_of_pupils}
+#initialize popup
+countyPopup <- paste0("<h3>Judet (County):&nbsp<font color=\"red\">",pupilsCounty$judet,"</font></h3>",
+                      "Pupils registered for 1st grade, 2014:&nbsp<b><font color=\"red\">",pupilsCounty$freq,"</font></b>",
+                      "<br><br></strong>Population, 2011:&nbsp<b><font color=\"red\">",populationCounty[,2],"</font></b>",
+                      "<br><br></strong>Percent pupils in 1st grade (2014)<br>from population (2011 census):&nbsp<b><font color=\"red\">",displayPercent,"%</font></b>")
+
+#prepare leaflet
+leaflet(data = rgeojson) %>% 
+  addTiles() %>%
+  setView(25.6, 45.6, 7) %>% 
+  addPolygons(fillColor = ~pal(displayPercent), 
+              fillOpacity = 0.9, 
+              color = "#7700BB", 
+              weight = 1, 
+              popup = countyPopup) %>%
+  addLegend("topright", pal = pal, 
+            values = c(min(displayPercent),
+                       max(displayPercent)),
+            title = "Percent pupils registered<br>in 1st grade (2014)<br> from population (2011 census)",
+            labFormat = labelFormat(suffix = "%"),
+            opacity = 1
+  )
+```  
+
+
+
+The map shows large regional variations from the counties in Moldova to the counties in the South of Romania.
+
+
+
+
+
+
+
+## Map with number of schools per county
+
+
+Hint: <font color="blue"><b>click on the map</b></font> to see detailed information on each county.  
+
+
+```{r number_of_schools_per_county}
+
+#get number of schools per each county
+schools_per_county <- plyr::count(schools, "judet")
+#match the counties with 'judet' (ordering as in the geojson)
+schoolsCounty <- schools_per_county[matchingNames(rgeojson$name,as.character(schools_per_county$judet)),]
+nSchoolsCounty = schoolsCounty$freq
+pal <- colorBin("Blues", nSchoolsCounty, bins = 8, na.color = "Red")
+#initialize popup
+countySchoolsPopup <- paste0("<h3>Judet (County):&nbsp<font color=\"blue\">",schoolsCounty$judet,"</font></h3>",
+                            "<br></strong>Number of schools:&nbsp<b><font color=\"blue\">",nSchoolsCounty,"</font></b>"
+                      )
+
+#prepare leaflet
+leaflet(data = rgeojson) %>% 
+  addTiles() %>%
+  setView(25.6, 45.6, 7) %>% 
+  addPolygons(fillColor = ~pal(nSchoolsCounty), 
+              fillOpacity = 0.9, 
+              color = "#77AABB", 
+              weight = 1, 
+              popup = countySchoolsPopup) %>%
+  addLegend("topright", pal = pal, 
+            values = c(min(nSchoolsCounty),
+                       max(nSchoolsCounty)),
+            title = "Number of schools<br>per county",
+            labFormat = labelFormat(suffix = ""),
+            opacity = 1
+  )
+```  
+
+
+
+
+
+# **Conclusions**
+
+
+We represented the percent of the population (from county population) registered as pupils in 1st grade of 
+elementary school in 2014. The data shows a very uneven distribution at county level (from county estimated
+population and school admission registration) of percent of pupils from total population. The values might
+be related with either variable number of children in families from various counties, with results of different
+modalities of migration (some counties population might favor letting children back with relatives while parents are
+emigrating to work in EU countries, another counties population might take the children when leaving the country).
+
+
+# **Feedback**
+
+
+
+Thank you for reading this Kernel. I will appreciate your **comments and suggestions*.
+
+
+
+# **References**
+
+
+[1] Public data from Romanian Government, http://data.gov.ro/   
+[2] Romanian geo datasets, http://www.geo-spatial.org/download/romania-seturi-vectoriale  
+[3] SIRUES codes Romania 2014, http://eprofu.ro/docs/tehnic/institutii/retea-scolara.xls   
+[4] School cartography, https://www.siiir.edu.ro/carto/  
+[5] Fuzzy string matching, https://www.r-bloggers.com/fuzzy-string-matching-a-survival-skill-to-tackle-unstructured-information/  
