@@ -49,7 +49,7 @@ We will include in this Kernel one function from a package not present on Kaggle
 * **ggbiplot** for representation of data grouped on category in the PCA transform components plane;  
 
 
-The category used in both cases will be the **diagnosis**.
+The category used in both cases will be the **quality**.
 
 ```{r prerequisite_ggbiplot, code_folding: hide}
 #this Kernel uses ggbiplot from https://github.com/vqv/ggbiplot/
