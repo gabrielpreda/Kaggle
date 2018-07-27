@@ -336,7 +336,7 @@ We include the R libraries used for data input, processing, analysis and visuali
 ```{r libraries_and_packages_management,message=FALSE,warning=FALSE}
 #use pacman for package management
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally, caret, corrplot)
+pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally, caret, corrplot, Rtsne)
 
 options(knitr.table.format = "html") 
 ```
@@ -579,11 +579,29 @@ ggbiplot(q.pca, choices=1:2, obs.scale = 1, var.scale = 1, groups = q.diag,
 
 Both **free.sulfur.dioxide** and **total.sulfur.dioxide** are almost ligned with 2nd PCA component (PC2) accounting for 17.5% of the feature explained variation whilst **pH** is aligned with 1st PCA component (PC1), accounting for 28.2% of the feature explained variation.
 
+# t-SNE transform
+
+While PCA is a linear algorithm, t-SNE is a non-linear dimensionality reduction algorithm. It finds patterns in the data by identifying observed clusters based on similarity of data points wiht multiple features. In the same time, it is not a clustering algorithm, it is a dimmensionality reduction algorithm that can be used as a data exploration and visualization technique.
+
+```{r fig.width=12, fig.height=8,t-sne}
+
+library(Rtsne)
+colors = rainbow(length(unique(q.diag)))
+names(colors) = unique(q.diag)
+
+
+tsne <- Rtsne(wine_df[1:11], dims = 2, perplexity=10, verbose=TRUE, max_iter = 500, check_duplicates = FALSE)
+plot(tsne$Y, t='n', main="t-Distributed Stochastic Neighbor Embedding (t-SNE)",
+     xlab="t-SNE 1st dimm.", ylab="t-SNE 2nd dimm.")
+text(tsne$Y, labels=q.diag, cex=0.9, col=colors[q.diag])
+
+```
+
 
 # **Conclusions**
 
 Preliminary data analysis shows that some of the features could be good predictors for quality, especially combining them. We will continue to update this Kernel to investigate efficiency of several models to predict red wine quality. 
-Principal Component Analysis shows that a part of the components are aligned with the two most important Principal Components PC1 and PC2.
+Principal Component Analysis shows that a part of the components are aligned with the two most important Principal Components PC1 and PC2. t-Distributed Stochastic Neighbor Embedding (t-SNE) did not show concludent results.
 
 
 # **References**
