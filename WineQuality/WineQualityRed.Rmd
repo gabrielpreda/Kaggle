@@ -1,5 +1,5 @@
 ---
-title: "Red Wine Quality Simple EDA"
+title: "Red Wine Quality Simple EDA and Prediction"
 author: "Gabriel Preda"
 date: "Created: 2018-07-09; Last updated:`r Sys.Date()`"
 output:
@@ -336,7 +336,7 @@ We include the R libraries used for data input, processing, analysis and visuali
 ```{r libraries_and_packages_management,message=FALSE,warning=FALSE}
 #use pacman for package management
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally, caret, corrplot, Rtsne)
+pacman::p_load(knitr, kableExtra, formattable, dplyr, ggplot2, GGally, caret, corrplot, Rtsne, gbm, caret, reshape2)
 
 options(knitr.table.format = "html") 
 ```
@@ -597,11 +597,94 @@ text(tsne$Y, labels=q.diag, cex=0.9, col=colors[q.diag])
 
 ```
 
+# **Predictive model using Gradient Boosting Machine (GBM)**
+
+Let’s prepare a simple GBM model. We will use as well cross validation with 5 folds.
+
+Let's split the dataset in two parts, train and test set. we reserve 80% of the data for training and 20% will be used for testing.
+
+```{r data_split}
+
+nrows <- nrow(wine_df1)
+set.seed(2018)
+indexT <- sample(1:nrow(df), 0.8 * nrows)
+
+#separate train and validation set
+trainset = df[indexT,]
+testset =   df[-indexT,]
+
+n <- names(trainset)
+```
+
+
+Let's put the data in the format needed for GBM. We will use cross-validation with 5 folds and `multinomial` distribution.
+
+
+```{r gbm_matrices}
+
+n<-names(trainset)
+gbm.form <- as.formula(paste("quality ~", paste(n[!n %in% "quality"], collapse = " + ")))
+gbmCV = gbm(formula = gbm.form,
+            distribution = "multinomial",
+            data = trainset,
+            n.trees=500,
+            interaction.depth=4,
+            cv.folds=5,
+            shrinkage=0.2,
+            n.cores = 2)
+
+```
+
+
+In order to find the best number of trees to use for the prediction for the test data, we can use `gbm.perf` function. This function returns the optimal number of trees for prediction.
+
+
+```{r gbm_best_nodes_number, echo=FALSE, message=FALSE}
+optimalTreeNumberPredictionCV = gbm.perf(gbmCV)
+```
+
+We use the optimal number of trees in the prediction. The optimal number of trees is `{r optimalTreeNumberPredictionCV}`.
+
+```{r gbm_predict}
+
+pred = predict(gbmCV,n.trees=optimalTreeNumberPredictionCV, newdata=testset,type='response')
+testset$predicted <- apply(pred, 1, which.max)
+```
+
+We represent the confusion matrix.
+
+```{r confusion_matrix}
+plotConfusionMatrix <- function(testset, sSubtitle) {
+    tst <- confusionMatrix(testset$predicted, testset$quality)
+    tst <- data.frame(melt(tst$table))
+    names(tst)<-c("Predicted","True","Count")
+
+    ggplot(data =  tst, mapping = aes(x = True, y = Predicted)) +
+      labs(title = "Confusion matrix", subtitle = sSubtitle) +
+      geom_tile(aes(fill = Count), colour = "grey") +
+      geom_text(aes(label = sprintf("%1.0f", Count)), vjust = 1) +
+      scale_fill_gradient(low = "gold", high = "tomato") +
+      theme_bw() + theme(legend.position = "none")
+}
+```
+
+
+```{r fig.width=5, fig.height=5, confusion_matrix2}
+plotConfusionMatrix(testset,sprintf("Prediction using GBM with %d (optimal number of) trees",optimalTreeNumberPredictionCV))
+```
+
+Let's see more details about the confusion matrix.
+
+```{r confusion_matrix_2}
+confusionMatrix(testset$predicted, testset$quality)
+```
 
 # **Conclusions**
 
 Preliminary data analysis shows that some of the features could be good predictors for quality, especially combining them. We will continue to update this Kernel to investigate efficiency of several models to predict red wine quality. 
 Principal Component Analysis shows that a part of the components are aligned with the two most important Principal Components PC1 and PC2. t-Distributed Stochastic Neighbor Embedding (t-SNE) did not show concludent results.
+
+We split then the data in training and test set. We used then Gradient Boosting Machine with cross-validation with 5 folds to build a model, with target value the quality. We used then the model with optimal number of trees to predict the quality for the test set.
 
 
 # **References**
