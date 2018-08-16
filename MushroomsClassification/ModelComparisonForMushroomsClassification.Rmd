@@ -1,0 +1,396 @@
+---
+title: "Model Comparison for Mushrooms Classification"
+author: "Gabriel Preda"
+date: "Created: November 22, 2017; Last update: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+
+
+```{r setup, include=FALSE}
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(pROC)
+library(randomForest)
+library(gbm)
+library(xgboost)
+```
+
+
+
+![\center Edible Fungi, Wikimedia Commons \center](https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Edible_Fungi.jpg/1185px-Edible_Fungi.jpg)
+
+
+
+# Introduction
+
+
+
+The Mushrooms Database contains data about several thousands types of mushrooms, both edible and poisonous. We will use several predictive models to guess the type (edible or poisonous) of the species.
+The data contains attributes for the cap (shape, surface, color), gill (attachment, spacing, size, color), bruises, stalk (shape, root, surface above ring, surface below ring, color above ring, color below ring), veil (type, color), ring (number, type), spore print color, population, habitat.
+
+
+
+# Input data
+
+
+
+We explained in the introduction the structure of the data. 
+Let's start by reading the data.
+
+
+```{r input_data}
+raw.data <- read.csv("../input/mushrooms.csv")
+print(sprintf("Number of data rows: %d",nrow(raw.data)))
+print(sprintf("Number of data columns: %d",ncol(raw.data)))
+```
+
+
+
+# Explore the features
+
+
+
+
+
+The field `classs` has either `e` (edible) or `p` (poisenous) value. 
+
+Let's check how many species are in each category.
+
+
+
+```{r class_percent}
+class <- plyr::count(raw.data$class)
+print(sprintf("Edible: %d | Poisonous: %d | Percent of poisonous classes: %.1f%%",class$freq[1],class$freq[2], round(class$freq[1]/nrow(raw.data)*100,1)))
+```
+
+
+
+We will analyze the features and try to understand which features have larger predictive value and which does not bring considerable predictive value if we want to create a model that allows us to *guess* if a mushroom is `edible` or `poisonous`.
+
+
+
+## Features analysis
+
+
+
+Let's represent the features. We will convert the factor data in numeric data.
+
+
+
+```{r features}
+m.data = raw.data[,2:23]
+m.class = raw.data[,1]
+m.data <- sapply( m.data, function (x) as.numeric(as.factor(x)))
+```
+
+
+For the feature plot we will use the density plot, to represent both the values density and the degree of separation of the two sets of values, on each feature direction.
+
+
+
+```{r fig.width=8, fig.height=16, feature_plot_density}
+scales <- list(x=list(relation="free"),y=list(relation="free"), cex=0.6)
+featurePlot(x=m.data, y=m.class, plot="density",scales=scales,
+            layout = c(4,6), auto.key = list(columns = 2), pch = "|")
+```
+
+
+There is no perfect separation between any of the features; we do have fairly good separations for `spore.print.color`, `ring.type`, `population`, `habitat`. We do have as well tight superposition for some of the values, like `veil.type`, `stalk.shape` .
+
+
+
+# Predictive models
+
+
+
+We will use three models, `RandomForest` (`RF`), `Gradient Boosting Machine` (`GBM`) and `XGBoost`.
+
+
+
+```{r model}
+df <- data.frame(sapply(raw.data, function (x) as.numeric(as.factor(x))))
+df$class <- df$class - 1
+nrows <- nrow(df)
+set.seed(314)
+indexT <- sample(1:nrow(df), 0.7 * nrows)
+#separate train and validation set
+trainset = df[indexT,]
+testset =   df[-indexT,]
+n <- names(trainset)
+```
+
+
+
+
+
+## Random Forest
+
+
+
+The first model we will try is Random forest.We set the number of trees to 100. For the rest of the parameters, we will keep the default settings.
+
+
+```{r random_forest_model}
+rf.form <- as.formula(paste("class ~", paste(n[!n %in% "class"], collapse = " + ")))
+trainset.rf <- randomForest(rf.form,trainset,ntree=100,importance=T)
+```
+
+
+
+
+
+Let's visualize the variable importance with two methods, **IncNodePurity** and **%IncMSE**. **IncNodePurity** is the total decrease in node impurities, measured by the Gini Index from splitting on the variable, averaged over all trees. **%IncMSE**  is the increase in mse of predictions as a result of variable **j** being permuted(values randomly shuffled).
+
+
+
+```{r fig.width=9, fig.height=3, variable_importance}
+varimp <- data.frame(trainset.rf$importance)
+  vi1 <- ggplot(varimp, aes(x=reorder(rownames(varimp),IncNodePurity), y=IncNodePurity)) +
+  geom_bar(stat="identity", fill="green", colour="black") +
+  coord_flip() + theme_bw(base_size = 8) +
+  labs(title="Prediction using RandomForest with 100 trees", subtitle="Variable importance (IncNodePurity)", x="Variable", y="Variable importance (IncNodePurity)")
+  vi2 <- ggplot(varimp, aes(x=reorder(rownames(varimp),X.IncMSE), y=X.IncMSE)) +
+  geom_bar(stat="identity", fill="lightblue", colour="black") +
+  coord_flip() + theme_bw(base_size = 8) +
+  labs(title="Prediction using RandomForest with 100 trees", subtitle="Variable importance (%IncMSE)", x="Variable", y="Variable importance (%IncMSE)")
+  grid.arrange(vi1, vi2, ncol=2)
+```
+
+
+
+We observe that `odor`, `gill.size`, `gill.color`, `spore.print.color`, `ring.type`, `population`, `stalk.root`, `gill.spacing` are the most important features.
+
+
+We present now the **test** data to the model.
+
+
+
+```{r random_forest_prediction}
+testset$predicted <- round(predict(trainset.rf ,testset),0)
+testset_rf <- testset$predicted;
+```
+
+
+
+Let's visualize the confusion matrix, to see how accurate are the results we obtained.
+
+
+
+```{r fig.width=4, fig.height=4, show_confusion_matrix}
+plotConfusionMatrix <- function(testset, sSubtitle) {
+    tst <- data.frame(testset$predicted, testset$class)
+    opts <- c("Predicted", "True")
+    names(tst) <- opts
+    cf <- plyr::count(tst)
+    cf[opts][cf[opts]==0] <- "P"
+    cf[opts][cf[opts]==1] <- "E"
+
+    ggplot(data =  cf, mapping = aes(x = True, y = Predicted)) +
+      labs(title = "Confusion matrix", subtitle = sSubtitle) +
+      geom_tile(aes(fill = freq), colour = "grey") +
+      geom_text(aes(label = sprintf("%1.0f", freq)), vjust = 1) +
+      scale_fill_gradient(low = "lightblue", high = "blue") +
+      theme_bw() + theme(legend.position = "none")
+}
+
+plotConfusionMatrix(testset,"Prediction using RandomForest with 100 trees")
+
+```
+
+
+
+Let's calculate as well the AUC for the prediction.
+
+```{r auc}
+print(sprintf("Area under curve (AUC) : %.3f",auc(testset$class, testset$predicted)))
+```
+
+
+
+
+
+
+
+## Gradient Boosting Machine (GBM) model
+
+
+
+Let's prepare a simple GBM model. We will use as well cross validation with 5 folds.
+
+
+
+```{r gbm_model}
+n<-names(trainset)
+gbm.form <- as.formula(paste("class ~", paste(n[!n %in% "class"], collapse = " + ")))
+gbmCV = gbm(formula = gbm.form,
+               distribution = "bernoulli",
+               data = trainset,
+               n.trees = 500,
+               shrinkage = .1,
+               n.minobsinnode = 15,
+               cv.folds = 5,
+               n.cores = 1)
+```
+
+
+
+In order to find the best number of trees to use for the prediction for the test data, we can use `gbm.perf` function. This function returns the optimal number of trees for prediction.
+
+
+```{r gbm_best_nodes_number}
+optimalTreeNumberPredictionCV = gbm.perf(gbmCV)
+```
+
+
+```{r gbm_model_t}
+gbmTest = predict(object = gbmCV,
+                           newdata = testset,
+                           n.trees = optimalTreeNumberPredictionCV,
+                           type = "response")
+testset$predicted <- round(gbmTest,0)
+testset_gbm <- testset$predicted
+```
+
+
+
+```{r fig.width=4, fig.height=4, show_confusion_matrix_gbm}
+plotConfusionMatrix(testset,sprintf("Prediction using GBM (%d trees)",optimalTreeNumberPredictionCV))
+```
+
+
+
+Let's calculate as well the AUC for the prediction.
+
+```{r auc_gbm}
+print(sprintf("Area under curve (AUC) : %.3f",auc(testset$class, testset$predicted)))
+```
+
+
+
+## XGBoost model
+
+
+
+Let's try now the XGBoost model.
+We prepare the data to run the model. We create `xgb.DMatrix` objects for each trainand test set.
+
+
+```{r xgboost_matrix_data}
+dMtrain <- xgb.DMatrix(as.matrix(trainset %>% select(-class)), label = trainset$class)
+dMtest <- xgb.DMatrix(as.matrix(testset %>% select(-class,-predicted)), label = testset$class)
+```
+
+
+
+
+
+We set the XGBoost parameters for the model. We will use a binary logistic  objective function. 
+The evaluation metric will be AUC (Area under curve). We start with $\eta$ = 0.012, `subsample`=0.8, `max_depth`=8, `colsample_bytree`=0.9 and `min_child_weight`=5.
+
+
+
+```{r xgboost_model_params}
+params <- list(
+  "objective"           = "binary:logistic",
+  "eval_metric"         = "auc",
+  "eta"                 = 0.012,
+  "subsample"           = 0.8,
+  "max_depth"           = 8,
+  "colsample_bytree"    =0.9,
+  "min_child_weight"    = 5
+)
+```
+
+
+
+Train the model using cross variation with 5 folds. We are using a number of rounds equal with 5000, with early stopping criteria for 100 steps. We are also setting the frequency of printing partial results every 100 steps.
+
+
+
+```{r xgboost_cv}
+nRounds <- 5000
+earlyStoppingRound <- 100
+printEveryN = 100
+model_xgb.cv <- xgb.cv(params=params,
+                      data = dMtrain, 
+                      maximize = TRUE,
+                      nfold = 5,
+                      nrounds = nRounds,
+                      nthread = 3,
+                      early_stopping_round=earlyStoppingRound,
+                      print_every_n=printEveryN)
+```
+
+
+
+The `AUC` for train and test set obtained using the training with cross validation have  
+
+
+
+```{r xgboost_predict}
+model_xgb <- xgboost(params=params,
+                      data = dMtrain, 
+                      maximize = TRUE,
+                      nrounds = nRounds,
+                      nthread = 3,
+                      early_stopping_round=earlyStoppingRound,
+                      print_every_n=printEveryN)
+```
+
+
+
+Let's use the model now to predict the test data:
+
+
+
+```{r xgboost_prediction}
+testset$predicted <- round(predict(model_xgb ,dMtest),0)
+testset_xgboost <- testset$predicted
+```
+
+
+
+Let's visualize the confusion matrix, to see how accurate are the results we obtained.
+
+
+
+```{r fig.width=4, fig.height=4, show_confusion_matrix_xgboost}
+plotConfusionMatrix(testset,"Prediction using XGBoost")
+```
+
+
+
+Let's calculate as well the AUC for the prediction.
+
+```{r auc_xgboost}
+print(sprintf("Area under curve (AUC) : %.3f",auc(testset$class, testset$predicted)))
+```
+
+
+
+
+
+# Conclusions
+
+
+
+We were able to predict with very high accuracy the poisonous and edible mushrooms based on the three models used, `Random Forest`, `Gradient Boosting Machine (GBM)` and `XGBoost`. For the `GBM` and `XGBoost` models we were also using cross validation. The best prediction was obtained using `Random Forest` model.
+
+
+# References
+
+
+[1]  [GBM Tutorial](http://allstate-university-hackathons.github.io/PredictionChallenge2016/GBM)  
+[2]  [Complete Guide to Parameter Tuning in XGBoost](https://www.analyticsvidhya.com/blog/2016/03/complete-guide-parameter-tuning-xgboost-with-codes-python/)
