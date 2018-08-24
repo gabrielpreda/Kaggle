@@ -40,8 +40,6 @@ The output feature is:
 * `quality` - output variable (based on sensory data, score between 0 and 10);
 
 
-
-
 # **Prerequisites**
 
 We will include in this Kernel one function from a package not present on Kaggle, as follows:  
@@ -345,14 +343,13 @@ options(knitr.table.format = "html")
 We read the data.
 
 ```{r read_data,message=FALSE,warning=FALSE}
-PATH="../input/winequality-red/"
-#PATH="../input/"
+#PATH="../input/winequality-red/"
+PATH="../input/"
 
 
 wine_df <- read.csv(paste(PATH,"winequality-red.csv",sep=""))
 
 ```
-
 
 
 # **Glimpse the data**
@@ -475,9 +472,6 @@ wine_df1 %>%
 ```
 
 
-
-
-
 ## Features box plots grouped by quality
 
 Let's show only the box plots for each feature, grouped by quality.
@@ -544,7 +538,6 @@ The following dimmensions are relatively inverse correlated:
 * **citric.acid** with **pH** and **volatile.acidity**;  
 
 
-
 # **Principal Component Analysis**
 
 Let's perform PCA on the data, excluding the **quality** column.
@@ -559,7 +552,7 @@ box()
 ```
 
 
-First two components are accounting for almost 50% of the total explained variance. 
+First two components are accounting for almost **50%** of the total explained variance. 
 
 We represent the data projected in the plane of the two principal components. The direction of the features are as well represented in the same plane. Two elipses are showing the 0.68 probability boundary for the distribution of the six groups of **quality** (3-8). A circle superposed over the scatter plot data helps to evaluate the relative ratio between the features in the most important principal components plane.
 
@@ -577,14 +570,13 @@ ggbiplot(q.pca, choices=1:2, obs.scale = 1, var.scale = 1, groups = q.diag,
 ```
 
 
-Both **free.sulfur.dioxide** and **total.sulfur.dioxide** are almost ligned with 2nd PCA component (PC2) accounting for 17.5% of the feature explained variation whilst **pH** is aligned with 1st PCA component (PC1), accounting for 28.2% of the feature explained variation.
+Both **free.sulfur.dioxide** and **total.sulfur.dioxide** are almost ligned with 2nd PCA component (PC2) accounting for **17.5%** of the feature explained variation whilst **pH** is aligned with 1st PCA component (PC1), accounting for **28.2%** of the feature explained variation.
 
 # **t-SNE transform**
 
 While PCA is a linear algorithm, t-SNE is a non-linear dimensionality reduction algorithm. It finds patterns in the data by identifying observed clusters based on similarity of data points wiht multiple features. In the same time, it is not a clustering algorithm, it is a dimmensionality reduction algorithm that can be used as a data exploration and visualization technique.
 
 ```{r fig.width=12, fig.height=8,t-sne}
-
 library(Rtsne)
 colors = rainbow(length(unique(q.diag)))
 names(colors) = unique(q.diag)
@@ -601,7 +593,7 @@ text(tsne$Y, labels=q.diag, cex=0.9, col=colors[q.diag])
 
 Let’s prepare a simple GBM model. We will use as well cross validation with 5 folds.
 
-Let's split the dataset in two parts, train and test set. we reserve 80% of the data for training and 20% will be used for testing.
+Let's split the dataset in two parts, train and test set. we reserve **80%** of the data for training and **20%** will be used for testing.
 
 ```{r data_split}
 
@@ -616,9 +608,7 @@ testset =   df[-indexT,]
 n <- names(trainset)
 ```
 
-
 Let's put the data in the format needed for GBM. We will use cross-validation with 5 folds and `multinomial` distribution.
-
 
 ```{r gbm_matrices}
 
@@ -635,15 +625,13 @@ gbmCV = gbm(formula = gbm.form,
 
 ```
 
-
 In order to find the best number of trees to use for the prediction for the test data, we can use `gbm.perf` function. This function returns the optimal number of trees for prediction.
-
 
 ```{r gbm_best_nodes_number, echo=FALSE, message=FALSE}
 optimalTreeNumberPredictionCV = gbm.perf(gbmCV)
 ```
 
-We use the optimal number of trees in the prediction. The optimal number of trees is `{r optimalTreeNumberPredictionCV}`.
+We use the optimal number of trees in the prediction. The optimal number of trees is ``r optimalTreeNumberPredictionCV``.
 
 ```{r gbm_predict}
 
