@@ -116,6 +116,20 @@ Let's see the top 5 of Universities for the years 2012-2015, according to CWUR.
 
 ```{r fig.width=8, fig.height=4,cwur_ooo_boxplots}
 cwurData %>% group_by(year) %>% 
+  select(year,institution,world_rank) %>% top_n(-5, wt = world_rank) -> cwurTop5
+
+plot_ly(cwurTop5, x = ~year) %>%
+  add_trace(y = cwurTop5$world_rank, name = cwurTop5$institution, showlegend=TRUE, type = 'scatter', mode = 'lines+markers', color= cwurTop5$institution) %>%
+  layout(title="World Ranked Universities by CWUR (2012-2015)", #legend = list(orientation = 'h'),
+         xaxis = list(showticklabels = TRUE, tickangle = 0, tickfont = list(size = 8)),
+         yaxis = list(title = "World rank"),
+         hovermode = 'compare')
+```
+
+
+
+```{r fig.width=8, fig.height=4,cwur_ooo_boxplots}
+cwurData %>% group_by(year) %>% 
   select(year,institution,world_rank) %>% top_n(-5, wt = world_rank) %>%
   ggplot(aes(x = year, y = world_rank, group = institution)) +       
    geom_line(aes(color=institution)) + geom_point(aes(shape=institution, color=institution)) + theme_bw() +
@@ -160,7 +174,6 @@ All these factors are relevant for the quality of  research done in the respecti
 
 ```{r fig.width=10, fig.height=9,cwur_boxplots}
 cwurData %>% group_by(country) %>% summarise(n = length(publications)) %>% top_n(10,n) %>% ungroup() -> c
-
 cwurData %>% filter(country %in% c$country) %>%
 ggplot(aes(x=country, y=publications, col=country)) + guides(col=FALSE) +
   geom_boxplot() +  theme_bw() + coord_flip() + 
@@ -201,7 +214,6 @@ We define a function to plot Country University Rankings. We are using the numbe
 
 
 ```{r fig.width=9, fig.height=6, cwur_data_plotly_world_slide}
-
   cwurData %>% group_by(country,year) %>% 
   summarise(nr = length(world_rank), minw=min(world_rank), maxw=max(world_rank), avgw=round(mean(world_rank),0)) %>%
   select(country, year, nr, minw, maxw, avgw) %>% ungroup() -> ccwur
@@ -231,7 +243,6 @@ plot_geo(ccwur, locationmode = 'country names') %>%
     title = with(ccwur, paste('Number of universities in top<br>Source:<a href="http://cwur.org/">Council of World University Ranking</a>')),
     geo = g
   )
-
 ```
 
 
@@ -256,7 +267,6 @@ value is best) and scores from 0 to 100 for:
 All these values are for a corresponding year between 2005 and 2015.   
 As these values are all ranking between 0 and 100, it will be relevant to represent them as Spider-Web graphs.
 
-
 ## Calculating missing values for Total Score
 
 The world rank is a bit misleading, since it is either a single number (like, 1, 2, 3) or an interval (100-400). This will be a bit
@@ -271,13 +281,10 @@ Let's calculate the Total Score from `shanghaiData` with this formula for the en
 
 ```{r fix_shanghai_total_score}
 shanghaiDataCld = shanghaiData
-
 shanghaiDataCld$t_score = 
   0.1 * shanghaiDataCld$alumni + 0.2 * shanghaiDataCld$award + 0.2 * shanghaiDataCld$hici + 
   0.2 * shanghaiDataCld$ns + 0.2 * shanghaiDataCld$pub + 0.1 * shanghaiDataCld$pcp
-
 shanghaiDataCld$total_score[is.na(shanghaiDataCld$total_score)] = shanghaiDataCld$t_score[is.na(shanghaiDataCld$total_score)]
-
 ```
 
 Let's check if there is still data with invalid `total_score`. The number of data rows with `NA` value of `total_score` is: 
@@ -291,6 +298,17 @@ Let's check now if there are any more rows with `total_score` as `NA`. The numbe
 
 The minimum Shanghai Total Score is now `r min(shanghaiDataCld$total_score)` and the maximum is still `r max(shanghaiDataCld$total_score)`.
 
+```{r fig.width=10, fig.height=4,shanghai_lines}
+#Fix the duplicate name for University of California-Berkeley
+shanghaiDataCld$university_name[shanghaiDataCld$university_name=="University of California-Berkeley"] <- "University of California, Berkeley"
+shanghaiDataCld %>% group_by(year) %>% 
+  top_n(10, wt = total_score) %>% select(year,university_name,total_score,alumni, award, hici, ns, pub, pcp) %>% ungroup() -> top10univ
+  ggplot(top10univ, aes(x = year, y = total_score, group = university_name)) +       
+   geom_line(aes(color=university_name)) + theme_bw() +  geom_point(aes(color=university_name)) +
+  labs(x="Year", y="World Rank", color = "University Name",
+      title="Shanghai (ARWU) World Ranks (2005-2015)", subtitle="Best ranked universities based on total score") 
+```
+
 
 ```{r fig.width=10, fig.height=4,shanghai_lines}
 #Fix the duplicate name for University of California-Berkeley
@@ -298,12 +316,17 @@ shanghaiDataCld$university_name[shanghaiDataCld$university_name=="University of 
 shanghaiDataCld %>% group_by(year) %>% 
   top_n(10, wt = total_score) %>% select(year,university_name,total_score,alumni, award, hici, ns, pub, pcp) %>% ungroup() -> top10univ
 
-  ggplot(top10univ, aes(x = year, y = total_score, group = university_name)) +       
-   geom_line(aes(color=university_name)) + theme_bw() +  geom_point(aes(color=university_name)) +
-  labs(x="Year", y="World Rank", color = "University Name",
-      title="Shanghai (ARWU) World Ranks (2005-2015)", subtitle="Best ranked universities based on total score") 
+
+plot_ly(top10univ, x = ~year) %>%
+  add_trace(y = top10univ$total_score, name = top10univ$university_name, showlegend=TRUE, type = 'scatter', mode = 'lines+markers', color= top10univ$university_name) %>%
+  layout(title="Total score<br>Best ranked universities based on total score", legend = list(orientation = 'h'),
+         xaxis = list(showticklabels = TRUE, tickangle = 0, tickfont = list(size = 6)),
+         yaxis = list(title = "Total"),
+         hovermode = 'compare')
 
 ```
+
+
 
 The same 10 universities (University of California at Berkley appears with 2 different entries) appears in top 10. Harvard University is leading with a flat 100 points as total score.
 
@@ -316,17 +339,14 @@ Let's represent the top universities on the same graph. We will use a radarchart
 top10SpiderWebYear <- function(nYear) {
     top10univ %>% filter(year==nYear) %>% ungroup() -> top10u
     top10 <- as.data.frame(cbind(top10u[,c(3,4,5,6,7,8,9)]))
-    
     colnames(top10) <- c("Total Score", "Alumni with Nobel", "Awarded Nobel", "Highly Cited", 
                          "Nature&Science", "Publications", "PCAP")
     rownames(top10) <- top10u$university_name
-    
     rmin <- apply(top10,2,min); rmax <- apply(top10,2,max)
      rmax <- 100
      rmin <- 0
     colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
                  "yellow", "grey", "lightblue", "brown", "red", "lightgreen", "cyan" )
-
     par(mfrow=c(4,3))
     par(mar=c(1,1,5,1))
     for(i in 1:nrow(top10)){
@@ -458,15 +478,11 @@ Let's represent the World countries with the number of universities in the top f
 
 
 ```{r fig.width=8, fig.height=6, shanghai_data_plotly_world_slide}
-
-
 scData %>%  group_by(country, year) %>% 
 summarise(nr = length(total_score), minw=min(total_score), maxw=max(total_score), avgw=round(mean(total_score),0)) %>%
 select(country, year, nr, minw, maxw, avgw) %>% ungroup() -> swur
-
 # light grey boundaries
 l <- list(color = toRGB("grey"), width = 0.5)
-
 swur$hover <- with(swur, 
       paste("Country: ", country, '<br>', 
             "Year: ",year, "<br>",
@@ -481,7 +497,6 @@ showframe = TRUE,
 showcoastlines = TRUE,
 projection = list(type = 'Mercator')
 )
-
 plot_geo(swur, locationmode = 'country names') %>%
 add_trace(
   z = ~nr, color = ~nr, colors = 'Spectral', frame = ~year,
@@ -564,7 +579,6 @@ timesData$total_score <- as.numeric(as.character(timesData$total_score))
 timesData$income[is.na(timesData$income)] <- 0
 timesData$international[is.na(timesData$international)] <- 0
 
-
 #calculate the total score
 timesData$t_score = 
   0.3 * as.numeric(as.character(timesData$teaching)) + 
@@ -590,7 +604,6 @@ thePlotYear <- function(nYear) {
     theme_bw() + coord_flip() +  scale_fill_manual(values=c(rep("lightgreen",7), "#CD7F32", "grey", "gold")) + guides(fill=FALSE) +
     labs(x="University name", y="World Rank", 
         title=paste("Rank in ",nYear), subtitle="(smaller value is better)") 
-  
 }
 ```
 
@@ -688,10 +701,8 @@ We will look to the aggregated values per country (top 10 countries) for the sam
 Where the total score, international and income values are not set, we will consider them to be 0.    
 Where total score was not available and the other values are available, the total score was calculated using the formula described in the introduction.
 
-```{r fig.width=8, fig.height=6,the_countries_boxplots,warning=FALSE}
-
+```{r fig.width=8, fig.height=8,the_countries_boxplots,warning=FALSE}
 timesData %>% group_by(country) %>% summarise(n = length(teaching)) %>% top_n(10,n) %>% ungroup() -> ct
-
 timesData %>% filter(country %in% ct$country) %>%
 ggplot(aes(x=country, y=teaching, col=country)) + guides(col=FALSE) +
   geom_boxplot() +  theme_bw() + coord_flip() + 
@@ -756,7 +767,6 @@ showframe = TRUE,
 showcoastlines = TRUE,
 projection = list(type = 'Mercator')
 )
-
 plot_geo(ther, locationmode = 'country names') %>%
 add_trace(
   z = ~nr, color = ~nr, colors = 'Spectral', frame = ~year,
@@ -775,7 +785,6 @@ layout(
 As we already explained, THE contains additional metrics (Number of FTE Students, Number of Students per Staff, International Students, Female-male ratio). The first three variables can be used directly, for female-male ratio we will need to process the data.
 
 ```{r extract_female_male_ratio_THE}
-
 timesData$female_ratio <- 
   sapply(strsplit(as.character(timesData$female_male_ratio), ":"), "[", 1)
 ```
@@ -788,27 +797,22 @@ ggplot(aes(x=university_name, y=as.numeric(as.character(gsub(",","",num_students
   geom_bar(stat="identity", fill="darkgreen", colour="black", position="dodge")+ theme_bw() + coord_flip() + 
   labs(x="University", y="FTE Students", 
       title="FTE Students", subtitle="Top 10 universities") -> d1
-
 timesData %>% filter(university_name %in% top10univ$university_name) %>%
 ggplot(aes(x=university_name, y=as.numeric(as.character(gsub("%","",international_students)))),fill=year) + guides(fill=FALSE) +
   geom_bar(stat="identity", fill="lightblue", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
   labs(x="University", y="International Students percentage", 
       title="International Students percentage [%]", subtitle="Top 10 universities") -> d2
-
 timesData %>% filter(university_name %in% top10univ$university_name) %>%
 ggplot(aes(x=university_name, y=as.numeric(as.character(female_ratio))),fill=year) + guides(fill=FALSE) +
   geom_bar(stat="identity", fill="pink", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
   labs(x="University", y="Female percentage", 
       title="Female percentage [%]", subtitle="Top 10 universities") -> d3
-
 timesData %>% filter(university_name %in% top10univ$university_name) %>%
 ggplot(aes(x=university_name, y=as.numeric(as.character(student_staff_ratio))),fill=year) + guides(fill=FALSE) +
   geom_bar(stat="identity", fill="lightgreen", colour="black", position=position_dodge(0.2))+ theme_bw() + coord_flip() + 
   labs(x="University", y="Student staff ratio", 
       title="Student staff ratio (number students per one staff)", subtitle="Top 10 universities") -> d4
-
 grid.arrange(d1,d2,d3,d4,ncol=1)
-
 ```
 
 
@@ -839,28 +843,21 @@ Four universities made the hierarchy in 2016 (the first time). Let's represent t
 ```{r romania_presence_in_tops_the_comparison}
 timesData %>% filter(country=="Romania") %>% 
   select(year,university_name,total_score,teaching, international, research, citations, income) -> theROData
-
 timesData %>% group_by(year) %>% 
   top_n(5, wt = total_score) %>% 
   select(year,university_name,total_score,teaching, international, research, citations, income) %>% ungroup() -> top5univ
-
 top5univ <- rbind(theROData,top5univ)
-
 theTop5SpiderWebYear <- function(nYear) {
     top5univ %>% filter(year==nYear) %>% ungroup() -> top5u
     top5 <- as.data.frame(cbind(top5u[,c(3,4,5,6,7,8)]))
-    
     colnames(top5) <- c("Total Score", "Teaching", "International Outlook", "Research", 
                           "Citations","Industry Income")
     rownames(top5) <- top5u$university_name
-    
     rmin <- apply(top5,2,min); rmax <- apply(top5,2,max)
      rmax <- 100
      rmin <- 0
-  
     colors_border=c( "tomato", "blue", "gold", "green", "magenta", 
                  "yellow", "grey", "lightblue", "brown", "red", "lightgreen", "cyan" )
-
     par(mfrow=c(3,3))
     par(mar=c(1,1,5,1))
     for(i in 1:nrow(top5)){
@@ -874,7 +871,6 @@ theTop5SpiderWebYear <- function(nYear) {
     }
     title(paste0('\nTHE  World University Rankings top 5 vs Romanian Univ. (',nYear,')'),outer=TRUE,col.main='black',cex.main=1.5)
 }
-
 ```
 
 
@@ -896,9 +892,7 @@ timesData %>% filter(country=="Romania") %>%
   select(university_name,num_students, international_students,female_ratio, student_staff_ratio) ->  theROData
 timesData %>% filter(year==2016) %>%   top_n(5, wt = total_score) %>% 
   select(university_name,num_students, international_students,female_ratio, student_staff_ratio) %>% ungroup() -> top5univ
-
 top5univ <- rbind(theROData,top5univ)
-
 timesData %>% filter(university_name %in% top5univ$university_name) %>%
 ggplot(aes(x=university_name, y=as.numeric(as.character(gsub(",","",num_students)))),fill=year) + guides(fill=FALSE) +
   geom_bar(stat="identity", fill="darkgreen", colour="black", position="dodge")+ theme_bw() + coord_flip() + 
@@ -986,10 +980,8 @@ We prepare next the function for plotting the education expenditure for all the 
 Before presenting the `institute_type` and `direct_expenditure_type` to the function, we convert the factor in characters and trim the white spaces (so that we can use easier the filters).
 
 ```{r education_expenditure_data_plotly_world}
-
 educationExpenditureFlatten$institute_type = trimws(as.character(educationExpenditureFlatten$institute_type))
 educationExpenditureFlatten$direct_expenditure_type = trimws(as.character(educationExpenditureFlatten$direct_expenditure_type))
-
 educationExpenditureRatioYear <- function(nType, nDirectExpenditureType) {
     educationExpenditureFlatten %>% filter(
         institute_type==nType, direct_expenditure_type == nDirectExpenditureType)  -> eef
@@ -1140,7 +1132,6 @@ educationExpenditureRatioYear("Higher Education Institutions", "Private")
 
 
 
-
 ###Total expenditure {.tabset .tabset-fade .tabset-pills}
 
 
@@ -1177,11 +1168,12 @@ grid.arrange(d1,d2,ncol=2)
 
 Let's merge Education expenditure per country data with UN Data showing the GDP for the countries. This will help us normalize the  expenditure per country, since the ratio that we were using until now aplies to very different GDP.
 
+Here we load the country profiles from UN Data.
 
 ```{r input_undata,message=FALSE,warning=FALSE}
 undata <- read.csv("../input/undata-country-profiles/country_profile_variables.csv")
 ```
-
+Let's visualize the total education expenditure in 2011, for the top 10 countries, only the Higher Education Institutions.
 
 ```{r fig.width=10, fig.height=4,find_real_expenditure_per_country}
 undata$country <- as.character(undata$country)
@@ -1202,7 +1194,8 @@ ggplot(aes(x=reorder(country,eet), y=eet),fill=year) + guides(fill=FALSE) +
 grid.arrange(d1,d2,ncol=2)
 ```
 
-The result is now much closed to something we expected: Total Higher Education expenditure top includes the now allmost the same countries as the Number of universities in CWUR per country. **USA**, **Japan**, **United Kingdom**, **France** are all in top 5 in both tops.
+The result is now much closed to something we expected: Total Higher Education expenditure top includes the now allmost the same countries as the Number of universities in CWUR per country. **USA**, **Japan**, **United Kingdom**, **France** are all in top 5 in both tops.  
+
 The countries that are in top 10 for number of universities in the CWUR and not in top of country Total Higher Education expenditure are **Israel**, **Swizerland** and **Canada**. The countries that are in the Total Higher Education expenditure top but not in the Number of universities in CWUR top 10 are **Italy**, **Spain** and **Mexico**. **Israel**, **United Kingdom**, **Switzerland**, **Canada** shows a very good efficiency of investment in Higher Education in terms of performance of universities.
 
 
@@ -1284,7 +1277,9 @@ Adding data from UNData dataset, to extract the GDP (Gross Domestic Product) all
 # **Feedback**
 
 This Kernel is still under development. I would highly appreciate your feedback for improvement and, of course, if you like it, please
-**upvote it!**
+**upvote it!**  
+
+
 
 # **References**
 

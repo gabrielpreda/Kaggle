@@ -1,0 +1,298 @@
+---
+title: "R Elo EDA"
+author: "Gabriel Preda"
+date: "Created: 2018-12-28; Last updated: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+#**Introduction** 
+
+
+This Kernel will take you through the process of analyzing the data to understand the predictive values of various features and the possible correlation between different features.
+
+
+#**Prepare the data analysis**
+
+##Load packages  
+
+Let's load the packages.
+
+```{r,message=FALSE,warning=FALSE}
+library(caret)
+library(corrplot)
+library(readr)
+library(knitr)
+library(kableExtra)
+library(formattable)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(plotly)
+options(knitr.table.format = "html") 
+```  
+
+
+##Load the data
+
+Let's load the data.
+
+
+```{r,input_data, message=FALSE,warning=FALSE}
+PATH="../input/elo-merchant-category-recommendation/"
+#PATH="../input"
+train_df=read_csv(paste0(PATH,'train.csv'))
+test_df=read_csv(paste0(PATH,'test.csv'))
+historical_trans_df=read_csv(paste0(PATH,'historical_transactions.csv'))
+new_merchant_trans_df=read_csv(paste0(PATH,'new_merchant_transactions.csv'))
+merchant_df=read_csv(paste0(PATH,'merchants.csv'))
+```  
+
+#**Summary of the data**{.tabset .tabset-fade .tabset-pills}
+
+
+We loaded 5 data files from the dataset, as following:
+
+* train.csv (`r nrow(train_df)` rows, `r length(names(train_df))` columns)  
+* test.csv (`r nrow(test_df)` rows, `r length(names(test_df))` columns)  
+* historical_transactions.csv (`r nrow(historical_trans_df)` rows, `r length(names(historical_trans_df))` columns)  
+* new_merchant_transactions.csv (`r nrow(new_merchant_trans_df)` rows, `r length(names(new_merchant_trans_df))` columns)
+* merchants.csv (`r nrow(merchant_df)` rows, `r length(names(merchant_df))` columns)
+
+
+Let's see the first few rows of each data file and also glimpse these data files.
+
+
+##Train  
+
+```{r glimpse_train}
+knitr::kable(head(train_df,10),caption="Train (first 10 rows)")
+glimpse(train_df)
+```
+
+##Test
+
+```{r glimpse_test}
+knitr::kable(head(test_df,10),caption="Test (first 10 rows)")
+glimpse(test_df)
+```
+
+
+##Historical transactions
+
+```{r glimpse_historical_transactions}
+knitr::kable(head(historical_trans_df,10),caption="Historical transactions (first 10 rows)")
+glimpse(historical_trans_df)
+```
+
+##New merchant transactions 
+
+```{r glimpse_new_merchant_transactions}
+knitr::kable(head(new_merchant_trans_df,10),caption="New merchant transactions (first 10 rows)")
+glimpse(new_merchant_trans_df)
+```
+
+
+##Merchants
+
+
+```{r glimpse_merchants}
+knitr::kable(head(merchant_df,10),caption="Merchants (first 10 rows)")
+glimpse(merchant_df)
+```
+
+
+#**Data exploration**
+
+Let's check for missing data in dataframes.   
+
+##Check for missing data
+
+We will define a function to plot the percent of missing values per each column of the dataframe.
+
+```{r function_missing_data}
+missing_data <- function(data) {
+  apply(data, 2, function(col)sum(is.na(col))/length(col))
+}
+
+print("Train data"); missing_data(train_df)
+print("Test data"); missing_data(test_df)
+print("Historical transaction data"); missing_data(historical_trans_df)
+print("New merchant transaction data"); missing_data(new_merchant_trans_df)
+print("Merchants data"); missing_data(merchant_df)
+
+```
+
+
+##Train and test data  
+
+Let's check the distribution of train and test features.
+
+Both have the same features:
+
+* card_id;  
+* feature1, feature2, feature3;  
+* first_active_month;  
+
+Train has also the target value, called target.
+
+
+```{r plot_bar}
+plot_bar <- function(data, var, name='Number', color='blues',
+                     title='Number', xtitle='feature', ytitle='Number of records',
+                     width=400, height=400) {
+  var <- enquo(var)
+  
+  data %>% group_by(!!var) %>% summarise(nr = length(card_id)) %>% ungroup() -> data_group
+  plot_ly(data_group, x = ~var,width = width, height = height) %>%
+    add_trace(y = ~nr, name=name, marker=list(color=color), showlegend=TRUE, type = 'bar') %>%
+  layout(title=title,
+         xaxis = list(title = xtitle, showticklabels = TRUE, tickangle = 45, tickfont = list(size = 8)),
+         yaxis = list(title = ytitle),
+         hovermode = 'compare')  
+  }
+```
+
+
+```{r feature_1}
+plot_bar(train_df, feature_1,xtitle='Feature 1', color='blue', title='Train data')
+plot_bar(test_df, feature_1,xtitle='Feature 1', color='lightblue', title='Test data')
+
+ggplot(train_df, aes(x=target)) +  theme_bw() +
+  geom_density(aes(group=feature_1, color=feature_1))
+```
+
+```{r feature_2}
+plot_bar(train_df, feature_2,xtitle='Feature 2', color='blue', title='Train data')
+plot_bar(test_df, feature_2,xtitle='Feature 2', color='lightblue', title='Test data')
+
+ggplot(train_df, aes(x=target)) +  theme_bw() +
+  geom_density(aes(group=feature_2, color=feature_2))
+```
+
+```{r feature_3}
+plot_bar(train_df, feature_3,xtitle='Feature 3', color='blue', title='Train data')
+plot_bar(test_df, feature_3,xtitle='Feature 3', color='lightblue', title='Test data')
+
+ggplot(train_df, aes(x=target)) + theme_bw() +
+  geom_density(aes(group=feature_3, color=feature_3))
+```
+
+```{r first_active_month}
+plot_bar(train_df, first_active_month,xtitle='First active month', color='blue', title='Train data')
+plot_bar(test_df, first_active_month,xtitle='First active month', color='lightblue', title='Test data')
+```
+
+
+
+##Historical transaction data
+
+Let's check the distribution of historical transaction data features.
+
+historical_trans_df is linked with train_df and test_df by the card_id key.
+
+Let's plot category_1, category_2, category_3 features distribution.
+
+
+```{r category_1}
+plot_bar(historical_trans_df, category_1,xtitle='Category 1', color='magenta', title='Historical transaction data')
+```
+
+```{r category_2}
+plot_bar(historical_trans_df, category_2,xtitle='Category 2', color='red', title='Historical transaction data')
+```
+
+```{r category_3}
+plot_bar(historical_trans_df, category_3,xtitle='Category 3', color='yellow', title='Historical transaction data')
+```
+
+
+Let's see city_id, merchant_category_id, state_id, subsector_id.
+
+
+```{r city_id}
+plot_bar(historical_trans_df, city_id,xtitle='City ID', color='lightblue', title='Historical transaction data')
+```
+
+
+```{r merchant_category_id}
+plot_bar(historical_trans_df, merchant_category_id,xtitle='Merchant category ID', color='darkblue', title='Historical transaction data')
+```
+
+```{r state_id}
+plot_bar(historical_trans_df, state_id,xtitle='State ID', color='tomato', title='Historical transaction data')
+```
+
+```{r subsector_id}
+plot_bar(historical_trans_df, subsector_id,xtitle='Subsector ID', color='darkgreen', title='Historical transaction data')
+```
+
+
+Let's show the purchase amount grouped by purchase time types.
+
+Before this, let's extract the date.
+
+historical_trans_df['purchase_date'] = pd.to_datetime(historical_trans_df['purchase_date'])
+historical_trans_df['month'] = historical_trans_df['purchase_date'].dt.month
+historical_trans_df['dayofweek'] = historical_trans_df['purchase_date'].dt.dayofweek
+historical_trans_df['weekofyear'] = historical_trans_df['purchase_date'].dt.weekofyear
+
+```{r extract_date_time}
+dtime <- strptime(str1, "%Y-%m-%dT%H:%M:%SZ")
+
+```
+
+##New merchant transaction data
+
+Let's check the distribution of historical transaction data features.
+
+historical_trans_df is linked with train_df and test_df by the card_id key.
+
+Let's plot category_1, category_2, category_3 features distribution.
+
+
+```{r nm_category_1}
+plot_bar(new_merchant_trans_df, category_1,xtitle='Category 1', color='blue', title='New merchant transaction data')
+```
+
+```{r nm_category_2}
+plot_bar(new_merchant_trans_df, category_2,xtitle='Category 2', color='lightblue', title='New merchant transaction data')
+```
+
+```{r nm_category_3}
+plot_bar(new_merchant_trans_df, category_3,xtitle='Category 3', color='blue', title='New merchant transaction data')
+```
+
+
+Let's see city_id, merchant_category_id, state_id, subsector_id.
+
+
+```{r nm_city_id}
+plot_bar(new_merchant_trans_df, city_id,xtitle='City ID', color='red', title='New merchant transaction data')
+```
+
+
+```{r nm_merchant_category_id}
+plot_bar(new_merchant_trans_df, merchant_category_id,xtitle='Merchant category ID', color='green', title='New merchant transaction data')
+```
+
+```{r nm_state_id}
+plot_bar(new_merchant_trans_df, state_id,xtitle='State ID', color='darkgrey', title='New merchant transaction data')
+```
+
+```{r nm_subsector_id}
+plot_bar(historical_trans_df, subsector_id,xtitle='Subsector ID', color='magenta', title='New merchant transaction data')
+```
+
+
+#**Final note**
+
+This Kernel is still under construction.
