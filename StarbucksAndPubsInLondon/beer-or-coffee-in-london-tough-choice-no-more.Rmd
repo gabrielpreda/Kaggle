@@ -1,0 +1,543 @@
+---
+title: "Beer or Coffee in London - Tough Choice? No more!"
+author: "Gabriel Preda"
+date: "Created: 2018-02-10; Last updated: `r Sys.Date()`"
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: show
+---
+
+
+# **Introduction**
+
+I created this Kernel aiming to simplify the choice  between tasting an ale or enjoying a coffee for a traveler or local in London.  If I am in a Starbucks shop, how many pubs are closer to me than to the next Starbucks?  Can I select the pubs that are closer to a Starbucks than to another? What is the area covered by a pub or by a Starbucks? How are these areas interwined? Are some Starbucks neighborhoods more crowded with pubs than anothers? How many Starbucks and how many pubs are actually in London ? All these questions can be now answered.
+
+<img src="https://storage.googleapis.com/kaggle-datasets-images/828/1521/5a43c85d9bfffaf39e1c45082c2f153d/dataset-card.jpg" alt="Starbucks?" width="440" align="center">
+<img src="https://upload.wikimedia.org/wikipedia/commons/4/49/Henry_Singleton_The_Ale-House_Door_c._1790.jpg" alt="Beer?" width="360" align="center">
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(rgdal)
+library(raster)
+library(deldir)
+library(mgcv)
+library(rgeos)
+```  
+
+# **Import the data**
+
+We import the database with all UK pubs information and the database with Starbucks worldwide.
+
+
+## UK Pubs
+
+```{r import_data}
+pdf <- read.csv("../input/every-pub-in-england/open_pubs.csv", stringsAsFactors=FALSE)
+```
+
+## Starbucks
+
+```{r import_data_2}
+sdf <- read.csv("../input/store-locations/directory.csv", stringsAsFactors=FALSE)
+```
+
+We also add here the shapefiles with the local authorities (2nd level) for UK.
+
+## Shapefiles with local authorities
+
+```{r map_pubs__local_authorities_leaflet1}
+#Local
+#shape <- readOGR(dsn = "../input/gadm-data-for-uk/GBR_adm", layer = "GBR_adm0")
+#Kaggle
+shape <- shapefile("../input/gadm-data-for-uk/GBR_adm2.shp")
+```  
+
+
+# **Prepare the data**
+
+Let's prepare the data. We filter only the Starbucks from UK, London.
+
+```{r filter_starbucks}
+sdf %>% filter(City == "London" & Country == "GB") -> sd
+#remove the Starbucks in a city with name "London" and one near a remote airport
+sd[sd$Latitude < 51.85,] -> sd
+```
+
+We also keep only the pubs in the municipalities belonging to London or London boroughs. We extracted the municipalities list from Reference [1] (London boroughs) are we are using here to filter by local  authority. The local authorities for pubs in London are actually the London boroughs.
+
+```{r filter_pubs}
+# Pubs in UK/London
+# change the lat/lng to be numeric
+pdf$latitude = as.numeric(pdf$latitude)
+pdf$longitude = as.numeric(pdf$longitude)
+# Filter by local authority
+localAuthoritiesLondon = c("Barking and Dagenham","Barnet","Bexley","Brent","Bromley","Camden","Croydon","Ealing","Enfield",
+  "Greenwich","Hackney","Hammersmith and Fulham","Haringey","Harrow","Havering","Hillingdon","Hounslow","Islington",
+  "Kensington and Chelsea","Kingston upon Thames","Lambeth","Lewisham","Merton","Newham","Redbridge","Richmond upon Thames",
+  "Southwark","Sutton","Tower Hamlets","Waltham Forest","Wandsworth","Westminster")
+pdf %>% filter(local_authority %in% localAuthoritiesLondon) -> pdl
+```  
+
+Let's filter from the shapefile the local authorities from London.
+
+```{r filter_pubs_shapefile_filter_london}
+shape[which(shape$NAME_2 %in% localAuthoritiesLondon),] -> shapeLondon
+```
+
+
+Let's plot, as a verification, the shapefile areas for London. We will use a color for the local authorities.
+
+```{r filter_pubs_shapefile_london}
+plot(shapeLondon, col="lightblue")
+```
+
+We can observe that *City of London* appears uncollored in the middle. Indeed, *City of London* is not one of the local authorities, it is instead governed by the City of London Corporation and the Inner and Middle Temples.
+
+# **Map with Starbucks and pubs**
+
+## Map preparation
+
+We start to prepare the data for representing on a map. Let's see first how many pubs and how many Starbucks are in London.
+
+
+```{r count_pubs_starbucks}
+sprintf("Starbucks in London: %d. Pubs in London: %d", nrow(sd), nrow(pdl))
+```
+
+There are considerable more pubs than Starbucks. Therefore, we will create Voronoi polygons for the Starbucks. 
+We use Voronoi polygons because they form a diagram partitioning the area in zones based on distance to a set of points (see Reference [2] for an extensive explanation on Voronoi polygons, to keep it simple I will only mention here that Voronoi polygons graph is the complementary graph of the tesselation graph for a set of points). 
+The edges of Voronoi polygons are orthogonal on the edges that connects the closest points in the  area. These Voronoi polygons edges are actually crossing the graph edges at their center, being thus medians for these edges. Another interesting property of the Voronoi polygons is that a certain point inside one polygon will have the closest neighbor in the points that generates the Voronoi diagram the point corresponding to its current polygon. Thus, we will be able to see the pubs in the neighborhood of a Starbucks, rather than the other way around. All the pubs inside a certain Voronoi polygon have as closest Starbucks the one that belongs to that polygon.  
+In the process of creating the Voronoi polygons, we will have to remove duplicates Starbucks data points (some Starbucks can have close or same location, due to the representation of longitude and latitude in the Starbucks data - **the values are rounded to second decimal**). That's why in central London the Starbucks appears as aligned on a grid. It is not a real grid, but an artefact resulted from the combination of rounded geographical position (to the 2nd decimal, or aroun few kilometers) and large zoom in factor.  
+
+
+```{r voronoi_starbucks}
+#extract starbucks data 
+#for spatial representation, we will have to remove lat/long duplicates
+starbucks <- sd[!duplicated(sd[c("Latitude","Longitude")]),]
+voronoiPoints <- SpatialPointsDataFrame(cbind(starbucks$Longitude,starbucks$Latitude), 
+                                        starbucks, match.ID=TRUE)
+# a function to calculate the Voronoi polygons associated with the SpatialPoints representing
+# the position of the Starbucks in London
+SpatialPointsToVoronoiPolygons <- function(sp) {
+  # tile.list extracts the polygon data from the deldir computation
+  vor_desc <- tile.list(deldir(sp@coords[,1], sp@coords[,2]))
+  lapply(1:(length(vor_desc)), function(i) {
+    # tile.list gets us the points for the polygons but we
+    # still have to close them, hence the need for the rbind
+    tmp <- cbind(vor_desc[[i]]$x, vor_desc[[i]]$y)
+    tmp <- rbind(tmp, tmp[1,])
+    # now we can make the Polygon(s)
+    Polygons(list(Polygon(tmp)), ID=i)
+  }) -> vor_polygons
+  # the metadata
+  sp_dat <- sp@data
+  # match the IDs with the data & voronoi polygons
+  rownames(sp_dat) <- sapply(slot(SpatialPolygons(vor_polygons),
+                                  'polygons'),
+                             slot, 'ID')
+  #return as a SpatialPolygonsDataFrame - class to pass polygons with attributes
+  SpatialPolygonsDataFrame(SpatialPolygons(vor_polygons),
+                           data=sp_dat)
+}
+voronoiPolygons <- SpatialPointsToVoronoiPolygons(voronoiPoints)
+```  
+
+Let's check now how many Starbucks domains remained after generating the polygons.
+
+```{r count_pubs_starbucks_2}
+sprintf("Starbucks in London: %d. Starbucks (distinct locations) in London: %d. Pubs in London: %d", 
+        nrow(sd), nrow(voronoiPolygons), nrow(pdl))
+```  
+
+
+
+The number of distinct locations for Starbucks decreased to almost half of the original number of Starbucks (**due to rounding of the lat/long value to only 2 digits after decimal point in the original data**).
+
+Let's check (using plot) the result, before representing on a geographical map.
+
+
+```{r fig.width=8, fig.height=12,plot_pubs_and_starbucks}
+# plot the pubs and Starbucks on the same figure with the
+# Voronoi polygons associated with the Starbucks positions
+pdn <- pdl[complete.cases(pdl),]
+pubs <- pdn[!duplicated(pdn[c("latitude","longitude")]),]
+pcts <- pubs[,c("longitude","latitude")]
+pct <- sd[,c("Longitude","Latitude")]
+plot(pct,col="green",cex=1.2,pch=16)
+plot(voronoiPolygons,add=TRUE,cex=0.8)
+points(pcts,col="red",cex=0.5,pch=16)
+title(main="Voronoi polygons of Starbucks in London and positions of pubs", cex.main=1)
+legend("topright",  cex = 1, 
+        legend = c("Starbucks", "Pubs"), text.col = c("green", "red"),
+        col = c("green", "red"), 
+        pch = c(16,16))
+```  
+
+
+The Starbucks positions are shown with green dots, the pubs positions are show with red dots and the Voronoi polygons associated with the Starbucks positions are shown on the same plot. Only the pubs positioned inside the plot area are shown here. The plot lat/long dimensions are not realistically drawn. Let's check now the results on a map view.
+
+
+## Map view
+
+For representation of Pubs and Starbucks shops on map we will use `leaflet`. Over the map tiles we show a first layer with the Voronoi polygons around Starbucks locations (green, transparent polygons). The second layer has the Starbucks  locations (green circles) and the third layer Pubs locations (red circles). You can click on circles to read details  about the Starbucks (green circles) or Pubs (red circles).
+
+
+```{r map_starbucks_pubs_leaflet}
+bins <- c(0,1,2)
+
+pal <- colorBin("RdYlGn", domain = voronoiPolygons$Ownership.Type, bins = bins)
+
+leaflet(data=voronoiPolygons) %>%
+  # base map
+  addTiles() %>%
+  # Starbucks - voronoi (click) layer
+  addPolygons(data=voronoiPolygons,
+              stroke=TRUE, fillColor="green", color="green", weight=2,
+              fill=TRUE, fillOpacity = 0.2,
+              smoothFactor=0.5) %>%
+  ## Starbucks
+  addCircleMarkers(data=voronoiPolygons, lat=voronoiPolygons$Latitude, lng=voronoiPolygons$Longitude,
+                   #clusterOptions=markerClusterOptions(),
+                   radius = 6,
+                   color = "green", weight=5, opacity=1,
+                   popup= paste("<strong>Brand: </strong><b><font color='green'>",voronoiPolygons$Brand,"</font></b>",
+                                "<br><strong>Store number: </strong>", voronoiPolygons$Store.Number,
+                                "<br><strong>Store name: </strong>", voronoiPolygons$Store.Name,
+                                "<br><strong>Address: </strong>", voronoiPolygons$Street.Address,
+                                "<br><strong>City: </strong>", voronoiPolygons$City,
+                                "<br><strong>Province/County: </strong>", voronoiPolygons$Country)
+                   ) %>%
+  # # circles - the pubs
+  addCircleMarkers(data=pdl, lat=pdl$latitude, lng=pdl$longitude,
+                   #clusterOptions=markerClusterOptions(),
+                   radius=6,
+                   color = "red", fill=TRUE, weight=1, opacity=1,
+                   popup= paste("<strong>Pub name: </strong><b><font color='red'>", pdl$name, "</font></b>",
+                                "<br><strong>Address: </strong>", pdl$address,
+                                "<br><strong>Local authority: </strong>", pdl$local_authority)
+                   ) %>%
+    addLegend("topright", colors=c("green","red"),
+            labels = c("Starbucks", "Pubs"),
+            title = "Starbucks & Pubs in London",
+            opacity = 0.8)
+```  
+
+With the Voronoi polygons it is easy now to see what is the area *covered* by a certain Starbucks and how many pubs are in the immediate neighborhood of a certain Starbucks. As well, if you are in a pub and would like to sober-up with a coffee, just look to the one in your Voronoi polygon, should be the closest to you. 
+
+
+Let's represent now the pubs and the local authorities.
+
+```{r map_starbucks_pubs_leaflet_1}
+bins <- c(0,1,2)
+
+pal <- colorBin("RdYlGn", domain = voronoiPolygons$Ownership.Type, bins = bins)
+
+leaflet(data=voronoiPolygons) %>%
+  # base map
+  addTiles() %>%
+  # local authorities
+  addPolygons(data=shapeLondon,
+              stroke=TRUE, fillColor="blue", color="blue", weight=2,
+              fill=TRUE, fillOpacity = 0.2,
+              smoothFactor=0.3) %>%
+ 
+  # # circles - the pubs
+  addCircleMarkers(data=pdl, lat=pdl$latitude, lng=pdl$longitude,
+                   #clusterOptions=markerClusterOptions(),
+                   radius=6,
+                   color = "red", fill=TRUE, weight=1, opacity=1,
+                   popup= paste("<strong>Pub name: </strong><b><font color='red'>", pdl$name, "</font></b>",
+                                "<br><strong>Address: </strong>", pdl$address,
+                                "<br><strong>Local authority: </strong>", pdl$local_authority)
+                   ) %>%
+    addLegend("topright", colors=c("blue","red"),
+            labels = c("Local authorities", "Pubs"),
+            title = "Local authorities & Pubs in London",
+            opacity = 0.8)
+```  
+
+
+We see that in the City of London we do not have pubs. Actually there are a few, but misplaced from neighboring Local authorities.
+
+
+## Select pubs in a Starbucks area
+
+Let's select one Starbucks area and identify the Pubs inside and outside the area. We will include in the same graph the Voronoi polygons associated with Starbucks locations (black lines), the Starbucks locations (green filled points), one selected Voronoi polygon (i.e. one Starbucks area, with green filled polygon), the Pubs **inside** that area (red circles), the Pubs **outside** that area (black circles). For detection of points inside and outside a certain polygon we are using the function **inSide**.
+
+
+Let's define first a function.
+```{r func_plot_polygon_inside_outside}
+
+# define the function
+plot_polygon_inside_outside <- function(polygonID) {
+
+    # extract the coordinates (long, lat) for that polygon
+    lonlat <- lapply(slot(voronoiPolygons[polygonID,1], "polygons"), function(x) lapply(slot(x,"Polygons"), function(y) slot(y, "coords")))
+    # create a list with the boundary from the coordinates
+    bnd <- list(data.frame(lonlat))
+    # prepare for the extraction of the inside/outside points
+    X1<-pcts$longitude
+    X2<-pcts$latitude
+    # select the points inside the boundary bnd
+    # bInside stores the TRUE/FALSE value for the pubs points - if are inside or outside the selected polygon
+    bInside <- inSide(bnd,X1,X2)
+    # plot green Starbucks position points, green selected polygon area,
+    # red inside pubs in the selected polygon area (Voronoi polygon for that Starbucks),
+    # black outside pubs outside the selected polygon area
+    plot(pct,col="green",cex=1.2,pch=16)
+    plot(voronoiPolygons,add=TRUE,cex=0.8)
+    plot(voronoiPolygons[polygonID,1],add=TRUE,col="lightgreen")
+    points(X1,X2,col=as.numeric(bInside)+1,pch=1)
+    title(main="Pubs inside and outside of Starbucks area", cex.main=1)
+    legend("topleft",  cex = 1, 
+            legend = c("Starbucks","Starbucks area", "Pubs outside area", "Pubs inside area"), 
+            text.col = c("green", "green", "black", "red"),
+            col = c("green", "green", "black", "red"), 
+            pch = c(16,15,1,1))
+}
+```    
+
+
+Let's call this function with **polygonID** = 1.
+
+
+```{r fig.width=8, fig.height=12, plot_polygon_inside_outside_1}
+polygonID = 1 
+plot_polygon_inside_outside(polygonID)
+```
+
+We can observe that the Pubs locations **inside** the selected Starbucks area are shown as red circles over the green background while the Pubs locations **outside** the selected Starbucks area are shown as black circles.
+
+The problem of selecting the pubs that are closer to a certain Starbucks than to any other Starbucks in the area is reduced to the problem of identifying the Voronoi polygons (what we call alternativelly Starbucks areas) associated with the Starbucks.
+
+Let's call the function with a different polygonID.
+
+```{r fig.width=8, fig.height=12, plot_polygon_inside_outside_2}
+polygonID = 5 
+plot_polygon_inside_outside(polygonID)
+```
+
+
+# **Starbucks and Pubs areas**
+
+Let's represent now the Starbucks (green polygons) and Pubs (red polygons, with dotten lines) areas superposed.  
+First, let's calculate the Voronoi polygons for Pubs.
+
+```{r voronoi_2}
+pdn <- pdl[complete.cases(pdl),]
+pubs <- pdn[!duplicated(pdn[c("latitude","longitude")]),]
+
+voronoiPointsPubs <- SpatialPointsDataFrame(cbind(pubs$longitude,pubs$latitude), 
+                                        pubs, match.ID=TRUE)
+voronoiPolygonsPubs <- SpatialPointsToVoronoiPolygons(voronoiPointsPubs)
+```
+
+Now, let's represent the superposed areas.
+
+```{r fig.width=6, fig.height=8,plot_starbucks_pubs_areas_1}
+#represent the superposed areas
+plot(pcts,col="white",cex=1.2,pch=16)
+#plot(pct,col="white",cex=1.2,pch=16)
+plot(voronoiPolygons,add=TRUE,cex=1.2,border="green",lwd=2)
+plot(voronoiPolygonsPubs,add=TRUE,cex=0.8,lty=3, border="red")
+legend("topleft",  cex = 1, 
+        legend = c("Starbucks areas", "Pubs areas"), 
+        text.col = c("green", "red"),
+        col = c("green", "red"), 
+        pch = c(5,5))
+title("Starbucks areas and Pubs areas")
+```  
+
+Let's represent now the Starbucks (green polygons) and Pubs (red polygons, with dotted lines) areas superposed, but zooming on only the central, Starbucks area.
+
+
+```{r fig.width=6, fig.height=8,plot_starbucks_pubs_areas_2}
+plot(pct,col="white",cex=1.2,pch=16)
+plot(voronoiPolygons,add=TRUE,cex=1.2,border="green",lwd=2)
+plot(voronoiPolygonsPubs,add=TRUE,cex=0.8,lty=3, border="red")
+legend("topleft",  cex = 1, 
+        legend = c("Starbucks areas", "Pubs areas"), 
+        text.col = c("green", "red"),
+        col = c("green", "red"), 
+        pch = c(5,5))
+title("Starbucks areas and Pubs areas\nzoom on Starbucks area")
+```  
+
+We can see that each Starbucks area contains typically multiple Pubs areas.   
+This is because the number of the pubs in London area is much larger than the number of Starbucks (with distinct locations) in the same area.
+Let's represent on a Leaflet map Voronoi polygons associated with Starbucks and Pubs areas.
+
+```{r map_starbucks_pubs_leaflet_2}
+bins <- c(0,1,2)
+pal <- colorBin("RdYlGn", domain = voronoiPolygons$Ownership.Type, bins = bins)
+leaflet(data=voronoiPolygons) %>%
+  # base map
+  addTiles() %>%
+  # Starbucks - voronoi layer
+  addPolygons(data=voronoiPolygons,
+              stroke=TRUE, fillColor="green", color="green", weight=0.5,
+              fill=TRUE, fillOpacity = 0.2,
+              smoothFactor=0.5) %>%
+  # Pubs - voronoi layer
+  addPolygons(data=voronoiPolygonsPubs,
+              stroke=TRUE, fillColor="red", color="red", weight=0.5,
+              fill=TRUE, fillOpacity = 0.2,
+              smoothFactor=0.5) %>%
+  addLegend("topright", colors=c("green","red"),
+            labels = c("Starbucks", "Pubs"),
+            title = "Starbucks & Pubs in London",
+            opacity = 0.8)
+```  
+
+Let's limit the Voronoi polygons of London area pubs by the Local authorities pubs.
+
+
+First, let's show the local authorities plot with colors, the color being proportional with the number of pubs in that area.
+
+
+## Pubs number per local authority
+
+```{r local_authorities_plot_pubs_density}
+pdl %>% group_by(local_authority) %>% summarize(nr = length(name)) -> pdln
+
+plot_map <- function(values, main, title, colormap="Blues") {
+  pal <- colorBin(colormap, values, bins = 8, na.color = "Red")
+  minc = min(values)
+  maxc = max(values)
+  cols = seq(minc, maxc, by=50)
+  fils = pal(cols)
+  plot(shapeLondon, col = pal(values), main = main)
+  legend(0.35,51.7, title = title, legend = cols, 
+         col = cols, fill = fils, cex=0.6)
+}
+
+plot_map(pdln$nr, "Pubs number per Local authorities in London","Pubs", colormap = "Reds")
+```
+
+## Pubs and Starbucks areas in local authorities areas
+
+Let's now intersect local authorities with pubs areas to obtain the trimmed pubs areas.
+
+```{r map_pubs_local_authorities_intersect_voronoi}
+la.poly <- as(shapeLondon, "SpatialPolygons")
+vor.poly <- voronoiPolygonsPubs
+voronoiShapeIntersect  <- gIntersection(vor.poly,la.poly, byid = T)
+```
+
+Let's also intersect local authorities with Starbucks areas to obtain trimmed Starbucks areas.
+
+```{r map_starbucks_local_authorities_intersect_voronoi}
+vor.poly <- voronoiPolygons
+voronoiShapeStarbucksIntersect  <- gIntersection(voronoiPolygons,la.poly, byid = T)
+```
+
+
+Let's plot now on the same map:  
+
+* The orrected Voronoi polygons for Pubs (by intersecting the pubs Voronoi polygons with the local authorities polygons) - with red;  
+* The Starbucks areas (by intersecting the Starbucks Voronoi polygons with the local authorities polygons) - with green;  
+* The local authorities areas - with blue.  
+
+
+```{r map_pubs__local_authorities_leaflet4}
+
+leaflet(data=voronoiShapeIntersect) %>%
+  # base map
+  addTiles() %>%
+  # Starbucks - voronoi intersected with shapefile layer
+  addPolygons(data=voronoiShapeStarbucksIntersect,
+              stroke=TRUE, fillColor="green", color="green", weight=2,
+              fill=TRUE, fillOpacity = 0.2,
+              smoothFactor=0.5) %>%
+  # Pubs - voronoi intersected with shapefile layer
+  addPolygons(data=voronoiShapeIntersect,
+              stroke=TRUE, fillColor="red", color="red",  weight=0.5,
+              fill=TRUE, fillOpacity = 0.2,
+              smoothFactor=0.5
+                ) %>%
+  # local authorities
+  addPolygons(data=shapeLondon,
+              stroke=TRUE, fillColor="blue", color="blue", weight=2,
+              fill=TRUE, fillOpacity = 0.0,
+              smoothFactor=0.3) %>%
+
+  addLegend("topright", colors=c("green","red", "blue"),
+            labels = c("Starbucks Voronoi polygons", "Pubs Voronoi polygons", "Local authorities areas"),
+            title = "Starbucks, Pubs and local authorities",
+            opacity = 0.8)
+```
+
+
+# **How many pubs are in the most dense Starbucks areas?**
+
+We will show now how many pubs are actually around each Starbucks in the most dense areas formed from the Voronoi polygons associated with each Starbucks shops. We will extract for each Voronoi polygon associated with a Starbucks the associated area (calculated in the lat/long metric, where each long unit is equal with a minute of longitude at the Equator, or **60 nautical miles**, i.e. approximately **111 km** and is **decreasing gradually to 0 for 90 degree of latitude**; at London latitude, one degree of longitude is approximativelly half; in the same time, one degree of latitude is smaller, due to the shape of the Earth but relatively constant with latitude; the computation being a bit complicate, we are not transforming here from this metric to the metric system but just keep the relative lat/long coordinates) and will calculate as well the number of pubs in these areas.  
+Then we will represent the first 50 Starbucks, ordered from the smallest area (bottom 50).  On the same graph we will put as well the number of pubs in the respective area.
+
+```{r fig.width=10, fig.height=8, areas}
+areas = list()
+pubs = list()
+for(polygonID in 1:length(voronoiPolygons)) {
+  area <- lapply(slot(voronoiPolygons[polygonID,1], "polygons"), function(x) lapply(slot(x,"Polygons"), function(y) slot(y, "area")))
+  areas[[polygonID]] <- area
+  lonlat <- lapply(slot(voronoiPolygons[polygonID,1], "polygons"), function(x) lapply(slot(x,"Polygons"), function(y) slot(y, "coords")))
+  # create a list with the boundary from the coordinates
+  bnd <- list(data.frame(lonlat))
+  # prepare for the extraction of the inside/outside points
+  X1<-pcts$longitude
+  X2<-pcts$latitude
+  # select the points inside the boundary bnd
+  # bInside stores the TRUE/FALSE value for the pubs points - if are inside or outside the selected polygon
+  bInside <- inSide(bnd,X1,X2)
+  a <- plyr::count(bInside)
+  #number of pubs inside a Starbucks area
+  pubs[[polygonID]] <- a$freq[a$x == TRUE]
+}
+# create a dataset with the addresses, areas and number of pubs for each Starbucks
+area_df <- data.frame(unlist(areas))
+names(area_df)<-  c("Area")
+area_df$Address <- voronoiPolygons$Street.Address
+publist <- unlist(pubs)
+area_df$Pubs <- c(publist, rep(0, nrow(area_df)-length(publist)))
+#represent `bottom 50` - list of smallest Starbucks areas
+area_df %>% top_n(-50,wt=Area) %>% ungroup() %>%
+  ggplot(aes(x = reorder(Address,Area), y = Area)) +
+  geom_bar(stat="identity", fill="lightgreen", colour="black") +
+  geom_text(aes(label=Pubs), hjust=-0.2, position=position_dodge(width=0.6)) +
+  coord_flip() +
+  theme_bw(base_size = 10)  +
+  labs(title="Starbucks in London (bottom 50, ordered by area)", 
+       subtitle="Ordered by Voronoi polygon area covered (lat/long metric); shows number of pubs in their area",
+       x ="Starbucks addresses", y = "Area covered (lat/long metric)")
+```
+
+We can observe that some of the smallest areas contains also some of the larger number of pubs in the `bottom 50`. The Starbucks shop at `99 St Martins Lane`, one of the addresses with smallest area associated, has **75** pubs in  the associated area. As well, the Starbucks shop at `159 Great Portland Street, Canary Warf - Jubilee` has **43** pubs in the associated area. The largest number of pubs is **`r max(area_df$Pubs)`**.
+
+# **Conclusion**
+
+We were able to draw the areas corresponding to the Starbucks and to the pubs in London area.   
+For this purpose we used the Voronoi polygons diagram associated with the vertices with the coordinates of Starbucks and pubs, respectively.  
+The Voronoi polygons have the interesting propriety that for a point inside a polygon the closest center of a Voronoi polygon is the center of the polygon containing it.  
+Therefore, we can use the Voronoi polygons for the Starbucks to identify, for each pub, what is the closest Starbucks in his neighborhood.
+We were thus able to identify the pubs in each Starbucks area and to calculate the density of pubs in such an area.  
+In the same time, with the Voronoi polygons as delimiters, we were able to cluster pubs around each Starbucks.
+
+
+# **References**
+
+[1] London boroughs, https://en.wikipedia.org/wiki/List_of_London_boroughs  
+[2] Voronoi diagram, https://en.wikipedia.org/wiki/Voronoi_diagram  
+[3] Voronoi diagrams from long/lat data, https://gis.stackexchange.com/questions/190917/r-voronoi-tesselation-from-long-lat-data  
+[4] Voronoi Diagram and Delaunay Triangulation in R, https://flowingdata.com/2016/04/12/voronoi-diagram-and-delaunay-triangulation-in-r/  
+[5] Map with Every Pub in England, https://www.kaggle.com/gpreda/map-with-every-pub-in-england  
+[6] Every Pub in England, https://www.kaggle.com/rtatman/every-pub-in-england  
+[7] Starbucks locations Worldwide, https://www.kaggle.com/starbucks/store-locations  
+[8] Calculate distance, bearing and more between Latitude/Longitude points, https://www.movable-type.co.uk/scripts/latlong.html  
+
