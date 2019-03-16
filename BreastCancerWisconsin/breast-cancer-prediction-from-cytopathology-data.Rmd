@@ -30,7 +30,7 @@ library(ggplot2)
 library(extracat)
 library(pROC)
 library(gbm)
-library(lightgbm)
+#library(lightgbm)
 library(xgboost)
 options(knitr.table.format = "html") 
 ```
@@ -609,6 +609,34 @@ bcW.diag = raw.data[,2]
 scales <- list(x=list(relation="free"),y=list(relation="free"), cex=0.4)
 featurePlot(x=bcW.data, y=bcW.diag, plot="pairs",scales=scales,
          auto.key = list(columns = 2), pch=".")
+```
+
+## Heatmap of all data
+
+Let's plot all the data as a heatmap. Due to reduced dimmension of the data, we can actually represent it on a graph, separately for diagnosis `M` and `B`.
+
+First, let's represent the data corresponding to `M` (malignant).
+
+```{r fig.width=8, fig.height=8, heatmap_malignant}
+nc=ncol(raw.data)
+dfm <- raw.data[raw.data$diagnosis=='M',4:nc-1]
+
+m <- data.matrix(dfm)
+library(RColorBrewer)
+cls = colorRampPalette(brewer.pal(8, "Dark2"))(256)
+heatmap(m, scale="column", col = cls, labRow=FALSE,Colv=NA, Rowv=NA)
+```
+
+Second, let's show the data corresponding to `B` (benign).
+
+```{r fig.width=8, fig.height=8, heatmap_benign}
+nc=ncol(raw.data)
+dfb <- raw.data[raw.data$diagnosis=='B',4:nc-1]
+
+m <- data.matrix(dfb)
+library(RColorBrewer)
+cls = colorRampPalette(brewer.pal(8, "Dark2"))(256)
+heatmap(m, scale="column", col = cls, labRow = FALSE, Colv=NA, Rowv=NA)
 ```
 
 ## Pearson correlation
