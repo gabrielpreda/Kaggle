@@ -30,7 +30,7 @@ library(ggplot2)
 library(extracat)
 library(pROC)
 library(gbm)
-#library(lightgbm)
+library(lightgbm)
 library(xgboost)
 options(knitr.table.format = "html") 
 ```
@@ -781,7 +781,7 @@ Principal components PC3-PC6 are explaining together **25.5%** variation. We can
 
 
 While PCA is a linear algorithm, t-SNE is a non-linear dimensionality reduction algorithm. It finds patterns in the data by identifying observed clusters based on similarity of data points wiht multiple features. In the same time, it is not a clustering algorithm, it is a dimmensionality reduction algorithm that can be used as a data exploration and visualization technique.
-
+We are including in the references an article which explains in detail the algorithm for t-SNE.
 We use `set.seed` before to ensure reproducibility.
 
 ```{r t-sne}
@@ -797,7 +797,7 @@ plot(tsne$Y, t='n', main="t-Distributed Stochastic Neighbor Embedding (t-SNE)",
      xlab="t-SNE 1st dimm.", ylab="t-SNE 2nd dimm.")
 text(tsne$Y, labels=bc.diag, cex=0.5, col=colors[bc.diag])
 ```
-
+We can observe the separation of the data in t-SNE 1st and 2nd dimmension plan of the data point clouds for the two values of target (`M` and `B`).
 
 # Predictive models
 
