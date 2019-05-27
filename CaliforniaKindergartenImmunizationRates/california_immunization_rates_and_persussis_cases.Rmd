@@ -120,7 +120,6 @@ studentData %>%  group_by(year, county) %>%
 californiaCounties <- subset(county.regions, state.name == "california")[,c(1,3)] 
 
 cYSD <- merge(cysd,californiaCounties, by.x="county", by.y="county.name")
-
 ```
 
 We perform similar processing for the private schools only, by adding to previous processing 
