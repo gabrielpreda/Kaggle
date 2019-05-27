@@ -493,6 +493,19 @@ plot_map(round(presence_n$Mobile.Percent,2), "Total remote cast votes percent pe
 plot(roshp)
 ```
 
+```{r plot_uat_map}
+plot_upat_map <- function(values, main, title, colormap="Blues") {
+  
+pal <- colorBin(colormap, values, bins = 8, na.color = "Red")
+plot(roshp, col = pal(values), main = main)
+legend(28,48, title = title, legend = c(min(values), max(values)), 
+       col = c(pal(min(values)), pal(max(values))),
+       fill=c(pal(min(values)), pal(max(values))), cex=0.6)
+}
+
+```
+
+
 # **Updates**
 
 The results are partially, there will be several updates today, for the 16 pm, 19 pm and 21 pm (final) results.  
