@@ -1,0 +1,531 @@
+---
+title: European Elections in Romania - 2019
+output:
+  html_document:
+    number_sections: false
+    toc: true
+    fig_width: 8
+    fig_height: 6
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+---
+
+# **Introduction**
+
+
+## About the European Elections
+
+We present here the partial results of the European Elecions 2019 in Romania (May 26). 
+
+Election is open in Romania between 7 am and 9 pm.
+
+## About Romania  
+
+Romania is a country part of the European Union (from 2007). Its population is estimated to 21.5 millions people (2017) and current number of registered voters is 18.27 millions people.  
+
+Romania has 41 counties (*judet* in Romanian) and the capital city, Bucharest, totally 42 administrative units.  
+
+
+
+# **Load the data**
+
+
+## Packages
+
+
+```{r setup, include=FALSE}
+library(plotly)
+library(dplyr)
+library(gtools)
+library(gridExtra)
+library(grid)
+library(jsonlite)
+library(rgdal)
+library(tidyr)
+library(leaflet)
+library(ggrepel)
+```
+
+## Data files
+
+The data is provided by the Romanian Electoral Bureau. They report the partial presence to vote at each hour.
+
+
+```{r read_data,warnings=FALSE}
+PATH = "../input/european-elections-romania-2019/"
+PATH_MAPS = "../input/romanian-referendum-2018/"
+
+presence_2607 <- read.csv(paste(PATH,"presence_2019-05-26_07-00.csv",sep=""))
+presence_2608 <- read.csv(paste(PATH,"presence_2019-05-26_08-00.csv",sep=""))
+presence_2609 <- read.csv(paste(PATH,"presence_2019-05-26_09-00.csv",sep=""))
+presence_2610 <- read.csv(paste(PATH,"presence_2019-05-26_10-00.csv",sep=""))
+presence_2611 <- read.csv(paste(PATH,"presence_2019-05-26_11-00.csv",sep=""))
+presence_2612 <- read.csv(paste(PATH,"presence_2019-05-26_12-00.csv",sep=""))
+presence_2613 <- read.csv(paste(PATH,"presence_2019-05-26_13-00.csv",sep=""))
+presence_2614 <- read.csv(paste(PATH,"presence_2019-05-26_14-00.csv",sep=""))
+presence_2615 <- read.csv(paste(PATH,"presence_2019-05-26_15-00.csv",sep=""))
+presence_2616 <- read.csv(paste(PATH,"presence_2019-05-26_16-00.csv",sep=""))
+presence_2617 <- read.csv(paste(PATH,"presence_2019-05-26_17-00.csv",sep=""))
+presence_2618 <- read.csv(paste(PATH,"presence_2019-05-26_18-00.csv",sep=""))
+presence_2619 <- read.csv(paste(PATH,"presence_2019-05-26_19-00.csv",sep=""))
+presence_2620 <- read.csv(paste(PATH,"presence_2019-05-26_20-00.csv",sep=""))
+presence_2621 <- read.csv(paste(PATH,"presence_2019-05-26_21-00.csv",sep=""))
+
+
+
+presence_2607 <- cbind(presence_2607[,c(1:12)])
+presence_2608 <- cbind(presence_2608[,c(1:12)])
+presence_2609 <- cbind(presence_2609[,c(1:12)])
+presence_2610 <- cbind(presence_2610[,c(1:12)])
+presence_2611 <- cbind(presence_2611[,c(1:12)])
+presence_2612 <- cbind(presence_2612[,c(1:12)])
+presence_2613 <- cbind(presence_2613[,c(1:12)])
+presence_2614 <- cbind(presence_2614[,c(1:12)])
+presence_2615 <- cbind(presence_2615[,c(1:12)])
+presence_2616 <- cbind(presence_2616[,c(1:12)])
+presence_2617 <- cbind(presence_2617[,c(1:12)])
+presence_2618 <- cbind(presence_2618[,c(1:12)])
+presence_2619 <- cbind(presence_2619[,c(1:12)])
+presence_2620 <- cbind(presence_2620[,c(1:12)])
+presence_2621 <- cbind(presence_2621[,c(1:12)])
+
+
+presence_2607$date = "2018-10-06 07h"
+presence_2608$date = "2018-10-06 08h"
+presence_2609$date = "2018-10-06 09h"
+presence_2610$date = "2018-10-06 10h"
+presence_2611$date = "2018-10-06 11h"
+presence_2612$date = "2018-10-06 12h"
+presence_2613$date = "2018-10-06 13h"
+presence_2614$date = "2018-10-06 14h"
+presence_2615$date = "2018-10-06 15h"
+presence_2616$date = "2018-10-06 16h"
+presence_2617$date = "2018-10-06 17h"
+presence_2618$date = "2018-10-06 18h"
+presence_2619$date = "2018-10-06 19h"
+presence_2620$date = "2018-10-06 20h"
+presence_2621$date = "2018-10-06 21h"
+
+
+
+presence_2607$crt = 07
+presence_2608$crt = 08
+presence_2609$crt = 09
+presence_2610$crt = 10
+presence_2611$crt = 11
+presence_2612$crt = 12
+presence_2613$crt = 13
+presence_2614$crt = 14
+presence_2615$crt = 15
+presence_2616$crt = 16
+presence_2617$crt = 17
+presence_2618$crt = 18
+presence_2619$crt = 19
+presence_2620$crt = 20
+presence_2621$crt = 21
+```
+
+
+```{r read_data_bind,warnings=FALSE}
+presence = smartbind(presence_2607, presence_2608, presence_2609, presence_2610, presence_2611, presence_2612, presence_2613, presence_2614,
+presence_2615, presence_2616, presence_2617, presence_2618, presence_2619, presence_2620, presence_2621)
+
+colnames(presence) <- c("County", "Municipality", "City", "SIRUTA", "Circumscription", "Location", "Environment", "Electors", "Votes.Registered", "Votes.not.Registered", "Votes.Mobile", "Votes.Total", "Date.Hour", "Time")
+
+```
+  
+
+The vote is open from 7 to 21 so the data is sampling the vote presence at even intervals.
+
+
+## Read GeoJSON
+
+We will use a GeoJSON for map representation of Romanian counties.
+
+```{r read_geo_json,warnings=FALSE}
+#geoJSON used for rendering, has lower number of points
+rgeojson <- readOGR(paste(PATH_MAPS,"romania.geojson",sep=""))#, layer="OGRGeoJSON")
+```
+
+## Read county codes mapping
+
+The county names used in the GeoJSON need to be mapped with the county codes used in the electoral process reports.
+This additional file is doing this mapping.
+
+```{r read_county_codes_mapping,warnings=FALSE}
+county_names_codes <- read.csv(paste(PATH_MAPS,"county_codes.csv",sep=""))
+```
+
+## Utilities
+
+The function 'matchingNames' is used to do fuzzy matching between Romanian counties names from data files where diferent encoding or writing of these names makes simple matching not  effective.
+
+```{r matching_names}
+# Matching names using: https://www.r-bloggers.com/fuzzy-string-matching-a-survival-skill-to-tackle-unstructured-information/
+#match using Levenshtein distance between the compared strings 
+matchingNames <- function(source1, source2) {
+  # To make sure we are dealing with characters
+  source1<-as.character(source1)
+  source2<-as.character(source2)
+
+  # It creates a matrix with the Standard Levenshtein distance between the name fields of both sources
+  dist.name<-adist(source1,source2, partial = FALSE, ignore.case = FALSE)
+  # We now take the pairs with the minimum distance
+  min.name<-apply(dist.name, 1, min)
+
+  match.s1.s2<-NULL  
+  for(i in 1:nrow(dist.name))
+  {
+    s2.i<-match(min.name[i],dist.name[i,])
+    s1.i<-i
+    match.s1.s2<-rbind(data.frame(s2.i=s2.i,s1.i=s1.i,
+                                  s2name=source2[s2.i], s1name=source1[s1.i], 
+                                  adist=min.name[i]),match.s1.s2)
+  }
+
+  mapi<-c(1:nrow(dist.name))
+  for(j in 1:nrow(dist.name))
+  {
+    mapi[match.s1.s2$s1.i[j]] = match.s1.s2$s2.i[j]
+  }
+  return(mapi)
+}
+```
+
+
+
+# **Visualise the data**
+
+
+## Vote evolution per county
+
+
+We show first the evolution of the vote (at different hours during the two days), grouped by counties, split on urban and rural areas.
+
+
+```{r rbubbly,warnings=FALSE}
+rbubbly <- function(dataset, x_column, y_column, bubble_column, color_column,
+                    slider_column, text_column,
+                    x_title=NA, y_title=NA, title=NA,
+                    x_is_log=TRUE, y_is_log=FALSE,scale_bubble=1) {
+
+  library(plotly)
+
+  if(x_is_log)
+    xtype="log"
+  else
+    xtype=NA
+
+  if(y_is_log)
+    ytype="log"
+  else
+    ytype=NA
+
+  xmin = min(x_column)
+  xmax = max(x_column)
+  ymin = min(y_column)
+  ymax = max(y_column)
+
+  smin = scale_bubble * sqrt(xmin*ymin)
+  smax = scale_bubble * sqrt(xmax*ymax)
+  p <-
+    plot_ly(data = dataset,
+      x = x_column,
+      y = y_column,
+      size = bubble_column,
+      color = color_column,
+      frame = slider_column,
+      text = text_column,
+      hoverinfo = " ~text",
+      type = 'scatter',
+      mode = 'markers',
+      marker = list(opacity = 0.5),
+      sizes = c(smin, smax)
+    ) %>%
+    layout(
+      title = title,
+      xaxis = list(
+        title = x_title,
+        type = xtype
+      ),
+      yaxis = list(
+        title = y_title,
+        type = ytype
+      )
+    )
+  return (p)
+}
+```
+
+We will rename the columns of the datasets, after binding the rows (to translate them in English).
+
+```{r merge_presence,warnings=FALSE}
+
+presence = merge(presence,county_names_codes, by.x="County", by.y="Code")
+
+```
+
+Prepare the aggregated data for visualization using Plotly, using a Gapminder-like representation.
+
+```{r rbubbly_prepare,warnings=FALSE}
+presence %>% group_by(Time, County, Name, Environment) %>% 
+  summarise(Registered.Percent = 100* sum(Votes.Registered)/sum(Electors),
+  Not.Registered.Percent = 100 * sum(Votes.not.Registered)/sum(Electors),
+  Mobile.Percent = 100 * sum(Votes.Mobile) / sum(Electors),
+  Total.Percent = 100 * sum(Votes.Total)/sum(Electors),
+  Total.Votes = sum(Votes.Total)) %>% ungroup() -> presence_grouped
+```
+
+
+Each county is represented with a bubble.
+The size of the bubble is proportional with the total number of votes per county (rural or urban area). 
+On the two axis we show the percent from the total number of electors per county of the registered voters and unregistered voters, respectively.
+
+Data is grouped as well on Rural/Urban electors environment and on sample date/time. 
+
+```{r rbubbly_show,warnings=FALSE}
+rbubbly(presence_grouped,
+        x_column = presence_grouped$Registered.Percent, y_column = presence_grouped$Total.Percent,
+        bubble_column = presence_grouped$Total.Votes, color_column = presence_grouped$Environment,
+        slider_column = presence_grouped$Time, text_column = presence_grouped$Name,
+        x_title="Percent of registered votes from registered electors", y_title="Percent of total votes from registered electors",                    
+        title="European elections Romnaia 2019\nPercent of votes per county, grouped by Rural/Urban environment",
+        x_is_log=FALSE, y_is_log=FALSE,scale_bubble=100)
+```
+
+
+## Votes evolution per country
+
+Let's show as well the total votes percents per country.
+
+
+```{r rbubbly_prepare2,warnings=FALSE}
+presence %>% group_by(Date.Hour) %>% 
+  summarise(Registered.Percent = 100* sum(Votes.Registered)/sum(Electors),
+  Not.Registered.Percent = 100 * sum(Votes.not.Registered)/sum(Electors),
+  Mobile.Percent = 100 * sum(Votes.Mobile) / sum(Electors),
+  Total.Percent = 100 * sum(Votes.Total)/sum(Electors),
+  Total.Votes = sum(Votes.Total)) %>% ungroup() -> presence_grouped_all
+```
+
+
+
+```{r votes_per_country_plotly}
+
+plot_ly(presence_grouped_all, x = ~Date.Hour) %>%
+  add_trace(y = ~Total.Percent, name = 'Total %', showlegend=TRUE, type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~Registered.Percent, name = 'Reg. %', showlegend=TRUE, type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~Not.Registered.Percent, name = 'Non Reg. %', showlegend=TRUE, type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~Mobile.Percent, name = 'Mobile %', showlegend=TRUE, type = 'scatter', mode = 'lines+markers') %>%
+  layout(title="Percent of the votes from the total registered electors",
+         xaxis = list(title = "Date.Time",showticklabels = TRUE, tickangle = 15, tickfont = list(size = 8)),
+         yaxis = list(title = "Percent"),
+         hovermode = 'compare')  
+```
+
+And let's also show the total votes per country, grouped by environment/area (Rural/Urban).
+
+```{r rbubbly_prepare212,warnings=FALSE}
+presence %>% group_by(Date.Hour, Environment) %>% 
+ summarise(Total.Votes = sum(Votes.Total)) %>% ungroup() -> presence_grouped_all_Environment
+```
+
+```{r votes_per_country_plotly212}
+
+plot_ly(presence_grouped_all_Environment, x = ~Date.Hour, color = ~Environment) %>%
+  add_trace(y = ~Total.Votes, showlegend=TRUE, type = 'scatter', mode = 'lines+markers') %>%
+  layout(title="Total votes per country (Rural(R) and Urban(U) areas)",
+         xaxis = list(title = "Date.Time",showticklabels = TRUE, tickangle = 15, tickfont = list(size = 8)),
+         yaxis = list(title = "Total"),
+         hovermode = 'compare')  
+```
+
+## Final votes distribution per county
+
+### Total, non-registered and mobile cast votes
+
+```{r plot_prepare2,warnings=FALSE}
+presence %>% filter(Time == max(presence$Time)) %>% group_by(Name) %>% 
+  summarise(Registered.Percent = 100* sum(Votes.Registered)/sum(Electors),
+  Not.Registered.Percent = 100 * sum(Votes.not.Registered)/sum(Electors),
+  Mobile.Percent = 100 * sum(Votes.Mobile) / sum(Electors),
+  Total.Percent = 100 * sum(Votes.Total)/sum(Electors),
+  Total.Votes = sum(Votes.Total)) %>% ungroup() -> presence_grouped_county
+```
+
+```{r votes_per_county_plotly2}
+
+plot_ly(presence_grouped_county, x = ~Name) %>%
+  add_trace(y = ~Total.Percent, name = 'Total %', showlegend=TRUE, type = 'bar') %>%
+  add_trace(y = ~Registered.Percent, name = 'Reg. %', showlegend=TRUE, type = 'bar') %>%
+  add_trace(y = ~Not.Registered.Percent, name = 'Non Reg. %', showlegend=TRUE, type = 'bar') %>%
+  add_trace(y = ~Mobile.Percent, name = 'Mobile %', showlegend=TRUE, type = 'bar') %>%
+  layout(title="Percent of the votes from the total registered electors",
+         xaxis = list(title = "County",showticklabels = TRUE, tickangle = 45, tickfont = list(size = 9)),
+         yaxis = list(title = "Percent"),
+         hovermode = 'compare')  
+```
+
+
+### Rural and Urban
+
+```{r rbubbly_prepare3,warnings=FALSE}
+presence %>% filter(Time == max(presence$Time)) %>% group_by(Name,Environment) %>% 
+  summarise(Registered.Percent = 100* sum(Votes.Registered)/sum(Electors),
+  Not.Registered.Percent = 100 * sum(Votes.not.Registered)/sum(Electors),
+  Mobile.Percent = 100 * sum(Votes.Mobile) / sum(Electors),
+  Total.Percent = 100 * sum(Votes.Total)/sum(Electors),
+  Total.Votes = sum(Votes.Total)) %>% ungroup() -> presence_grouped_county_Environment
+```
+Percent of the votes from the total registered electors in rural and urban areas.
+
+```{r votes_per_county_plotly3}
+
+plot_ly(presence_grouped_county_Environment, x = ~Name, color= ~Environment) %>%
+  add_trace(y = ~Total.Percent, showlegend=TRUE, type = 'bar') %>%
+  layout(title="Percent of the votes from the total registered electors\nRural(R) and Urban(U) areas",
+         xaxis = list(title = "County",showticklabels = TRUE, tickangle = 45, tickfont = list(size = 9)),
+         yaxis = list(title = "Percent"),
+         hovermode = 'compare')  
+```
+Total votes per county.
+
+
+```{r votes_per_county_plotly4}
+
+plot_ly(presence_grouped_county_Environment, x = ~Name, color= ~Environment) %>%
+  add_trace(y = ~Total.Votes, showlegend=TRUE, type = 'bar') %>%
+  layout(title="Total votes\nRural(R) and Urban(U) areas",
+         xaxis = list(title = "County",showticklabels = TRUE, tickangle = 45, tickfont = list(size = 9)),
+         yaxis = list(title = "Total Votes"),
+         hovermode = 'compare')  
+```
+
+## Maximum values per polling station
+
+Let's check what are the extreme (maximum) values per polling station. 
+First, let's check the top of the polling stations with the maximum percent of total votes from the number of registered electors.
+
+```{r polling_station_max_votes_percent,fig.width=9, fig.height=9}
+presence %>% filter(Date.Hour == max(Date.Hour)) %>% ungroup() -> presence_l
+presence_l$Total.Percent = 100 * presence_l$Votes.Total/presence_l$Electors
+presence_l$Non.Registered.Percent = 100 * presence_l$Votes.not.Registered/presence_l$Electors
+
+presence_l %>% arrange(desc(presence_l$Total.Percent)) %>% top_n(20,Total.Percent) %>% 
+  ggplot(aes(x=Total.Percent, y=Non.Registered.Percent,color=Environment)) + guides(fill=FALSE) +
+  geom_point() + geom_smooth(method=lm) + theme_bw() + 
+  scale_x_continuous(limits = c(0, 500)) + scale_y_continuous(limits = c(0,500)) + 
+  geom_label_repel(size = 3, aes(label = sprintf("%s (%s, %s)",Location, City, Name)),box.padding=0.15, point.padding=0.25,segment.color = 'blue') +
+  labs(x="Total votes from registered electors [%]", y="Not registered votes from registered electors [%]", 
+       title="Top 20 polling stations by total votes percent from registered electors", subtitle="RO European Elections 2019")
+
+
+```
+
+
+Let's also compar the results for the Remote cast votes.  
+
+
+```{r polling_station_max_votes_percent1,fig.width=9, fig.height=9}
+presence %>% filter(Date.Hour == max(Date.Hour)) %>% ungroup() -> presence_l
+presence_l$Mobile.Percent = 100 * presence_l$Votes.Mobile/presence_l$Electors
+presence_l$Non.Registered.Percent = 100 * presence_l$Votes.not.Registered/presence_l$Electors
+
+presence_l %>% arrange(desc(presence_l$Mobile.Percent)) %>% top_n(20,Mobile.Percent) %>% 
+
+  ggplot(aes(x=Mobile.Percent, y=Non.Registered.Percent,color=Environment)) + guides(fill=FALSE) +
+  geom_point() + geom_smooth(method=lm) + theme_bw() + 
+  scale_x_continuous(limits = c(0, 70)) + scale_y_continuous(limits = c(0,70)) + 
+  geom_label_repel(size = 3, aes(label = sprintf("%s (%s)",City, Name)),box.padding=0.15, point.padding=0.25,segment.color = 'blue') +
+  labs(x="Non-registered votes from registered electors", y="Mobile casted total votes percent from registered electors", 
+       title="Top 20 polling stations cities by Mobile casted votes percent from registered electors", subtitle="RO European Elections 2019")
+
+
+```
+
+## Maximum values per city
+
+Second, let's check the cities with the largest percent of total votes from the number of registered electors.
+
+
+```{r polling_station_max_votes_percent2,fig.width=9, fig.height=9}
+presence %>% filter(Time == max(presence$Time)) %>% group_by(City,Name,Environment) %>% 
+  summarise(Registered.Percent = 100* sum(Votes.Registered)/sum(Electors),
+  Not.Registered.Percent = 100 * sum(Votes.not.Registered)/sum(Electors),
+  Mobile.Percent = 100 * sum(Votes.Mobile) / sum(Electors),
+  Total.Percent = 100 * sum(Votes.Total)/sum(Electors),
+  Total.Votes = sum(Electors)) %>% ungroup() -> presence_l
+
+presence_l %>% arrange(desc(presence_l$Total.Percent))  %>% top_n(20, Total.Percent) %>% 
+  ggplot(aes(x=Total.Percent, y=Not.Registered.Percent, color=Environment)) + guides(fill=FALSE) +
+  geom_point() + geom_smooth(method=lm) + theme_bw() + 
+  scale_x_continuous(limits = c(0, 200)) + scale_y_continuous(limits = c(0,200)) + 
+  geom_label_repel(size = 3, aes(label = sprintf("%s (%s)",City, Name)),box.padding=0.15, point.padding=0.25,segment.color = 'blue') +
+  labs(x="Total votes from registered electors [%]", y="Not registered votes from registered electors [%]", 
+       title="Top 20 cities by total votes percent from registered electors", subtitle="RO European Elections 2019")
+
+
+```
+
+## Map views for county results
+
+We show here the map of final vote distribution per county.
+
+
+```{r county_map_prepare,warnings=FALSE}
+presence %>% filter(Date.Hour == max(Date.Hour)) %>% 
+  group_by(Name) %>%
+  summarise(Registered.Percent = 100* sum(Votes.Registered)/sum(Electors),
+    Not.Registered.Percent = 100 * sum(Votes.not.Registered)/sum(Electors),
+    Mobile.Percent = 100 * sum(Votes.Mobile) / sum(Electors),
+    Total.Percent = 100 * sum(Votes.Total)/sum(Electors),
+    Total.Votes = sum(Votes.Total)) %>% ungroup() -> presence_county
+
+```
+
+We merge the county codes and names dataset with the presence per country dataset and with the geojson data.
+
+```{r county_map_prepare2,warnings=FALSE}
+
+presence_n = presence_county[matchingNames(rgeojson$name,as.character(presence_county$Name)),]
+```
+
+Next, we show the total number of electors per county, the percent of total votes from number of electors, the percent of the non-registered votes from number of electors and the percent of number of mobile cast votes ("urna mobila") from the number of electors per county.
+
+
+```{r ess}
+plot_map <- function(values, main, title, colormap="Blues") {
+  
+pal <- colorBin(colormap, values, bins = 8, na.color = "Red")
+plot(rgeojson, col = pal(values), main = main)
+legend(28,48, title = title, legend = c(min(values), max(values)), 
+       col = c(pal(min(values)), pal(max(values))),
+       fill=c(pal(min(values)), pal(max(values))), cex=0.6)
+}
+
+plot_map(presence_n$Total.Votes, "Total votes", "Total votes per county")
+plot_map(round(presence_n$Total.Percent,2), "Total votes percent per county", "Total %",  "Blues")
+plot_map(round(presence_n$Total.Percent,2), "Total registered votes percent per county", "Reg. %",  "Greens")
+plot_map(round(presence_n$Not.Registered.Percent,2), "Total non registered votes percent per county", "Non reg. %", "Oranges")
+plot_map(round(presence_n$Mobile.Percent,2), "Total remote cast votes percent per county", "Remote cast %",  "Reds")
+
+```
+
+
+# **Updates**
+
+The results are partially, there will be several updates today several times until 21h.  
+
+
+
+# **Conclusion**
+
+
+
+# **References**
+
+[1] The World Factbook - Romania, https://www.cia.gov/library/publications/the-world-factbook/geos/ro.html  
+[2] Central Electoral Bureau of Romania, Data Source for the vote presence (in RO lang), http://prezenta.bec.ro/  
+[3] Romanian Geospatial Data, Data Source for GeoJSON with Romanian counties (in RO lang), http://www.geo-spatial.org/download/romania-seturi-vectoriale
+
