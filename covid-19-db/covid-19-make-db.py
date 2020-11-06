@@ -102,27 +102,11 @@ data_df = data_df[['Country/Region', 'Province/State', 'Latitude', 'Longitude', 
 
       
 def fix_data_for_country_date(country, date, confirmed, recovered, deaths):
-	"""
-	@param country
-	@param date
-	@param confirmed
-	@param recovered
-	@param deaths
-	@return fixed data
-	"""
-    data_df.loc[(data_df['Country/Region']==country) & (data_df['Date']==date), 'Confirmed'] = confirmed
-    data_df.loc[(data_df['Country/Region']==country) & (data_df['Date']==date), 'Recovered'] = recovered
-    data_df.loc[(data_df['Country/Region']==country) & (data_df['Date']==date), 'Deaths'] = deaths
+   data_df.loc[(data_df['Country/Region']==country) & (data_df['Date']==date), 'Confirmed'] = confirmed
+   data_df.loc[(data_df['Country/Region']==country) & (data_df['Date']==date), 'Recovered'] = recovered
+   data_df.loc[(data_df['Country/Region']==country) & (data_df['Date']==date), 'Deaths'] = deaths
 
 def fix_data_for_france_date(country, date, confirmed, recovered, deaths):
-	"""
-	@param country
-	@param date
-	@param confirmed
-	@param recovered
-	@param deaths
-	@return fixed data for france
-	"""
     data_df.loc[(data_df['Country/Region']==country) & (data_df['Province/State']==country) & (data_df['Date']==date), 'Confirmed'] = confirmed
     data_df.loc[(data_df['Country/Region']==country) & (data_df['Province/State']==country)  & (data_df['Date']==date), 'Recovered'] = recovered
     data_df.loc[(data_df['Country/Region']==country) & (data_df['Province/State']==country)  & (data_df['Date']==date), 'Deaths'] = deaths
