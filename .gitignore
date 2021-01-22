@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.html
+*.Rproj
+input/
+.ipynb_checkpoints
+*.csv
+*.xls
+*.xlsx
+*.zip
+*.png
+catboost_info
