@@ -2,8 +2,10 @@ import pandas as pd
 import numpy as np
 import os
 import sys
+import shutil
 
-##--
+
+##-- create the main vaccination information
 vaccination_path = "../../covid-19-data/public/data/vaccinations"
 country_files = os.listdir(os.path.join(vaccination_path, 'country_data'))
 country_df = pd.DataFrame()
@@ -11,7 +13,12 @@ for country in country_files:
     data_df = pd.read_csv(os.path.join(vaccination_path, 'country_data', country))
     country_df = country_df.append(data_df)   
 
-##-
+##- copy vaccination file
+source_path = os.path.join(vaccination_path, "vaccinations-by-manufacturer.csv")
+target_path = "country_vaccinations_by_manufacturer.csv"
+dest = shutil.copy(source_path, target_path)
+
+# process country data
 vaccinations_df = pd.read_csv(os.path.join(vaccination_path, 'vaccinations.csv'))    
 locations_df = pd.read_csv(os.path.join(vaccination_path, 'locations.csv'))
 ##-
