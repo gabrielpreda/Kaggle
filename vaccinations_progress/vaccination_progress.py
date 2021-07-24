@@ -18,6 +18,19 @@ source_path = os.path.join(vaccination_path, "vaccinations-by-manufacturer.csv")
 target_path = "country_vaccinations_by_manufacturer.csv"
 dest = shutil.copy(source_path, target_path)
 
+##- copy variants file
+variants_path = "../../covid-19-data/public/data/variants"
+source_path = os.path.join(variants_path, "covid-variants.csv")
+target_path = "covid-variants.csv"
+dest = shutil.copy(source_path, target_path)
+
+
+##- copy testing file
+testing_path = "../../covid-19-data/public/data/testing"
+source_path = os.path.join(testing_path, "covid-testing-all-observations.csv")
+target_path = "covid-testing.csv"
+dest = shutil.copy(source_path, target_path)
+
 # process country data
 vaccinations_df = pd.read_csv(os.path.join(vaccination_path, 'vaccinations.csv'))    
 locations_df = pd.read_csv(os.path.join(vaccination_path, 'locations.csv'))
