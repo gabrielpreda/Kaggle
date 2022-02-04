@@ -63,7 +63,7 @@ def build_dataset(tweets_copy):
 def update_and_save_dataset(tweets_df):   
     file_path = "tokyo_2020_tweets.csv"
     if os.path.exists(file_path):
-        tweets_old_df = pd.read_csv(file_path)
+        tweets_old_df = pd.read_csv(file_path, low_memory=False)
         print(f"past tweets: {tweets_old_df.shape}")
         tweets_all_df = pd.concat([tweets_old_df, tweets_df], axis=0)
         print(f"new tweets: {tweets_df.shape[0]} past tweets: {tweets_old_df.shape[0]} all tweets: {tweets_all_df.shape[0]}")
@@ -78,6 +78,6 @@ if __name__ == "__main__":
     api = twitter_connection()
     tweets_copy = create_cursor(api=api, search_words="##Tokyo2020 -filter:retweets",
                                 date_since="2021-07-01", language="en",
-                                items_limit=50000)
+                                items_limit=3000)
     tweets_df = build_dataset(tweets_copy)
     update_and_save_dataset(tweets_df)
