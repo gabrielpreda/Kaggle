@@ -11,4 +11,5 @@ input/
 *.xlsx
 *.zip
 *.png
+*.tfrecords
 catboost_info
