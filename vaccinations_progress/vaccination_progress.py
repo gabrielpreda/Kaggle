@@ -5,8 +5,8 @@ import sys
 import shutil
 
 copy_vaccination_manufacturer = True
-copy_variants = True
-copy_testing = True
+copy_variants = False
+copy_testing = False
 
 ##-- create the main vaccination information
 vaccination_path = "../../covid-19-data/public/data/vaccinations"
