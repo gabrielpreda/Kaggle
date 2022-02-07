@@ -13,7 +13,7 @@ def twitter_connection():
     return api
 
 
-def create_cursor(api, search_words, date_since, language="en", items_limit=10000):
+def create_cursor(api, search_words, date_since, language="en", items_limit=3000):
     
     # Collect tweets
     tweets = tw.Cursor(api.search,
