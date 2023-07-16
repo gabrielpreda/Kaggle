@@ -1,3 +1,4 @@
+# %% [code]
 #-------------------------------------
 #
 # Audio plot utils:
@@ -12,6 +13,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
+from scipy.io import wavfile
 from librosa.display import waveshow
 import IPython.display as ipd
 from IPython.display import Audio 
@@ -63,6 +65,27 @@ def display_sound_wave(sound_path=None,
     fig, ax = plt.subplots(1, figsize = (16, 3))
     fig.suptitle(f'Sound Wave: {text}', fontsize=12)
     librosa.display.waveshow(y = audio_sound, sr = sr_sound, color = color)
+
+def display_wavefile(sound_path=None,
+               text="Test", 
+               color="green"):
+    """
+    Display a sound wave - load using wavefile
+    sr: sample rate
+    y_sound: sound samples
+    Args
+        sound_path: path to the sound file
+        text: text to display
+        color: color for text to display
+    Returns
+        None
+    """
+    if not sound_path:
+        return    
+    sr_sound, y_sound = wavfile.load(sound_path)
+    fig, ax = plt.subplots(1, figsize = (16, 3))
+    fig.suptitle(f'Sound Wave: {text}', fontsize=12)
+    ax.plot(np.linspace(0, sr_sound/len(y_sound), sr_sound), y_sound)
     
     
 def display_spectrogram(sound_path=None,
